@@ -1,0 +1,81 @@
+:root {
+    --bg-color: #ffffff;
+    --text-color: #222222;
+    --border-color: #dddddd;
+    --link-color: #0066cc;
+    --button-bg: #eeeeee;
+    --button-text-color: #222222;
+    --item-hover-bg: #f0f0f0;
+}
+
+body[data-theme="dark"] {
+    --bg-color: #2c2c2c;
+    --text-color: #e0e0e0;
+    --border-color: #444444;
+    --link-color: #60a5fa; /* A lighter blue for dark mode */
+    --button-bg: #4a4a4a;
+    --button-text-color: #e0e0e0;
+    --item-hover-bg: #3a3a3a;
+}
+
+body {
+    font-family: sans-serif;
+    width: 300px;
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    margin: 8px; /* Added some margin for better spacing */
+}
+
+#bookmarksList { margin-top: 10px; }
+
+.bookmark-item {
+    display: flex;
+    align-items: center;
+    padding: 5px;
+    border-bottom: 1px solid var(--border-color);
+}
+.bookmark-item:hover {
+    background-color: var(--item-hover-bg);
+}
+
+.favicon-img {
+    width: 16px;
+    height: 16px;
+    margin-right: 8px;
+}
+
+.bookmark-item a {
+    text-decoration: none;
+    color: var(--link-color);
+    flex-grow: 1; /* Allow title to take available space */
+}
+
+.bookmark-item a:hover {
+    /* Link hover color could also be a variable if desired */
+    text-decoration: underline;
+}
+
+button, .delete-btn { /* Generic button styling */
+    background-color: var(--button-bg);
+    color: var(--button-text-color);
+    border: 1px solid var(--border-color);
+    padding: 5px 8px;
+    cursor: pointer;
+    margin-left: 5px; /* Consistent margin for buttons */
+}
+button:hover, .delete-btn:hover {
+    opacity: 0.9;
+}
+
+/* Specific adjustments if needed */
+#savePageBtn {
+    /* Potentially specific styles, or rely on generic button style */
+}
+#themeToggleBtn {
+    /* Potentially specific styles, or rely on generic button style */
+}
+.delete-btn {
+    /* Overwrites generic margin-left if needed, but current generic is fine */
+    /* margin-left: 8px; */ /* from previous */
+    padding: 2px 5px; /* from previous, keeping it for delete */
+}
