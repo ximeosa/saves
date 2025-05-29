@@ -1,95 +1,137 @@
 document.addEventListener('DOMContentLoaded', function() {
-  const bookmarkBtn = document.getElementById('bookmarkBtn');
+  const bookmarkPageBtn = document.getElementById('bookmarkPageBtn');
+  const bookmarkVideoBtn = document.getElementById('bookmarkVideoBtn');
+  const bookmarkChannelBtn = document.getElementById('bookmarkChannelBtn');
+  const bookmarkWebsiteBtn = document.getElementById('bookmarkWebsiteBtn');
+  const viewBookmarksLink = document.getElementById('viewBookmarksLink');
   const statusMessage = document.getElementById('statusMessage');
 
-  bookmarkBtn.addEventListener('click', function() {
-    chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-      if (tabs[0]) {
-        const tab = tabs[0];
-        let pageTitle = tab.title; // Initial title
-        const pageUrl = tab.url;
+  let currentTabInfo = null; // Store current tab info
+  let intendedBookmarkType = 'page'; // Default
 
-        statusMessage.textContent = `Processing: ${pageTitle.substring(0, 40)}...`;
-        console.log('Attempting to bookmark tab:', pageTitle, pageUrl);
+  // Function to update button states based on URL
+  function updateButtonStates(url) {
+    const isYouTubeVideo = url.includes("youtube.com/watch");
+    const isYouTubeChannel = url.includes("youtube.com/channel/") || url.includes("youtube.com/@");
 
-        // Inject content script to extract more info
-        chrome.scripting.executeScript(
-          {
-            target: { tabId: tab.id },
-            files: ['content_script.js']
-          },
-          (injectionResults) => {
-            // The content script sends a message, so we don't primarily use injectionResults here.
-            // However, good to check if injection itself failed.
-            if (chrome.runtime.lastError || !injectionResults || injectionResults.length === 0) {
-              console.error("Content script injection failed:", chrome.runtime.lastError);
-              // Proceed with basic bookmarking if injection fails
-              saveBookmark(pageTitle, pageUrl, null, null);
-              return;
-            }
-            console.log("Content script injected successfully.");
-            // The actual data comes via chrome.runtime.onMessage in this flow.
-            // We'll set up a temporary listener for the response from this specific tab.
-          }
-        );
-      } else {
-        statusMessage.textContent = 'Error: Could not get tab info.';
-        console.error('Error: Could not get current tab information.');
-        setTimeout(() => { statusMessage.textContent = ''; }, 2000);
-      }
-    });
-  });
+    bookmarkVideoBtn.disabled = !isYouTubeVideo;
+    bookmarkChannelBtn.disabled = !(isYouTubeChannel || isYouTubeVideo);
+    
+    // Optional: Add specific classes for different button types if using CSS for that.
+    // e.g., bookmarkPageBtn.classList.add('action-page'); 
+  }
 
-  // Listener for messages from content script
-  // This needs to be outside the click handler to be persistent enough,
-  // but we need to ensure we're acting on a message related to the current bookmarking action.
-  // For popups, which are short-lived, this is simpler.
-  // We'll refine if needed for background script.
-  chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
-    if (request.action === "extractedPageInfo") {
-      console.log("Received page info from content script:", request.data);
-      // Ensure the message is from the tab we're currently trying to bookmark.
-      // This check is important if multiple bookmarking actions could happen quickly,
-      // though less critical for a popup that closes.
-      chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
-        if (tabs[0] && sender.tab && sender.tab.id === tabs[0].id) {
-          const currentTab = tabs[0]; // Get fresh tab info, url might have changed (e.g. redirects)
-          const finalTitle = request.data.pageTitle || currentTab.title; // Prefer title from content script
-          const finalUrl = currentTab.url; // Always use the current URL of the tab
-
-          statusMessage.textContent = `Bookmarking: ${finalTitle.substring(0,40)}...`;
-          saveBookmark(finalTitle, finalUrl, request.data.faviconUrl, request.data.thumbnailUrl);
-        }
-      });
-      // sendResponse({}); // Acknowledge message (optional)
-      return true; // Indicates you wish to send a response asynchronously (if you were to use sendResponse)
+  // Get current tab info when popup opens
+  chrome.tabs.query({ active: true, currentWindow: true }, function(tabs) {
+    if (tabs[0]) {
+      currentTabInfo = tabs[0];
+      updateButtonStates(currentTabInfo.url);
+    } else {
+      statusMessage.textContent = 'Error: Could not get tab info.';
+      [bookmarkPageBtn, bookmarkVideoBtn, bookmarkChannelBtn, bookmarkWebsiteBtn].forEach(b => b.disabled = true);
     }
   });
 
-  function saveBookmark(title, url, faviconUrl, thumbnailUrl) {
-    console.log('Saving bookmark with details:', { title, url, faviconUrl, thumbnailUrl });
+  viewBookmarksLink.addEventListener('click', function(e) {
+    e.preventDefault();
+    chrome.runtime.openOptionsPage();
+    window.close(); // Close popup
+  });
+
+  function triggerBookmarkProcess(type) {
+    if (!currentTabInfo) {
+      statusMessage.textContent = 'Tab info not available.';
+      return;
+    }
+    intendedBookmarkType = type; // Set the type for when content script returns
+    statusMessage.textContent = `Processing: ${currentTabInfo.title.substring(0,40)}...`;
+    
+    chrome.scripting.executeScript(
+      { target: { tabId: currentTabInfo.id }, files: ['content_script.js'] },
+      (injectionResults) => {
+        if (chrome.runtime.lastError || !injectionResults || !injectionResults.length) {
+          console.error("Content script injection failed:", chrome.runtime.lastError);
+          // Fallback: save with what we have, without content script info
+          let urlToSave = currentTabInfo.url;
+          if (intendedBookmarkType === 'website') {
+              urlToSave = new URL(currentTabInfo.url).origin;
+          }
+          // Title might need adjustment for 'website' type too
+          let titleToSave = intendedBookmarkType === 'website' ? new URL(currentTabInfo.url).hostname : currentTabInfo.title;
+
+          saveBookmark(titleToSave, urlToSave, null, null, intendedBookmarkType);
+        }
+        // Success: wait for onMessage from content_script
+      }
+    );
+  }
+
+  bookmarkPageBtn.addEventListener('click', () => triggerBookmarkProcess('page'));
+  bookmarkVideoBtn.addEventListener('click', () => triggerBookmarkProcess('youtube_video'));
+  bookmarkChannelBtn.addEventListener('click', () => triggerBookmarkProcess('youtube_channel'));
+  bookmarkWebsiteBtn.addEventListener('click', () => triggerBookmarkProcess('website'));
+
+  // Existing onMessage listener for content script response
+  chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    if (request.action === "extractedPageInfo") {
+      if (sender.tab && currentTabInfo && sender.tab.id === currentTabInfo.id) {
+        let finalTitle = request.data.pageTitle || currentTabInfo.title;
+        let finalUrl = currentTabInfo.url; // Use current tab URL, content script doesn't change it.
+        let favicon = request.data.faviconUrl;
+        let thumbnail = request.data.thumbnailUrl;
+
+        if (intendedBookmarkType === 'website') {
+          finalUrl = new URL(currentTabInfo.url).origin;
+          finalTitle = new URL(currentTabInfo.url).hostname; // Use hostname for website title
+          // Favicon from content script should ideally be for the domain.
+          // Thumbnail might not be relevant or could be a site screenshot (advanced).
+          thumbnail = null; // Typically no specific thumbnail for 'website' type from page content.
+        } else if (intendedBookmarkType === 'youtube_channel') {
+          if (request.data.extractedChannelUrl) {
+            finalUrl = request.data.extractedChannelUrl; // Override URL to actual channel URL
+            finalTitle = request.data.extractedChannelTitle || finalTitle; // Override title to actual channel title
+            // Favicon should already be the channel icon from content script's logic
+            // Thumbnail might be the video's thumbnail if on video page, or channel banner if on channel page.
+            // For a channel bookmark, we might prefer the favicon (channel icon) as the thumbnail as well,
+            // or let the content script's logic for channel pages (banner/icon) decide.
+            // If we are on a video page, request.data.thumbnailUrl is the video thumbnail.
+            // We should use faviconUrl (channel icon) as thumbnail for channel bookmark.
+            if (currentTabInfo.url.includes("youtube.com/watch")) { // If originally on a video page
+                 thumbnail = favicon; // Use channel icon (already in favicon) as thumbnail for channel bookmark
+            }
+          }
+          // If not on video page or channel info not found, it defaults to current page's info,
+          // which is fine if user is already on the channel page.
+        }
+
+
+        statusMessage.textContent = `Bookmarking: ${finalTitle.substring(0,40)}...`;
+        saveBookmark(finalTitle, finalUrl, favicon, thumbnail, intendedBookmarkType);
+      }
+      return true; 
+    }
+  });
+
+  // Updated saveBookmark function to accept type
+  function saveBookmark(title, url, faviconUrl, thumbnailUrl, type) {
+    console.log('Saving bookmark with details:', { title, url, faviconUrl, thumbnailUrl, type });
     const bookmark = {
       id: 'id_' + new Date().getTime(),
-      type: 'page', // Default type
+      type: type, // Use the passed type
       title: title,
       url: url,
-      faviconUrl: faviconUrl || null, // Store extracted favicon
-      thumbnailUrl: thumbnailUrl || null, // Store extracted thumbnail
+      faviconUrl: faviconUrl || null,
+      thumbnailUrl: thumbnailUrl || null,
       added_date: new Date().toISOString()
     };
 
-    if (url.includes("youtube.com/watch")) {
-      bookmark.type = 'youtube_video';
-    } else if (url.includes("youtube.com/channel/") || url.includes("youtube.com/@")) {
-      bookmark.type = 'youtube_channel';
-    }
-    // Add other type detections if necessary
+    // No need for type detection here as it's passed in.
 
     chrome.storage.local.get({ bookmarks: [] }, function(data) {
       let bookmarks = data.bookmarks;
-      if (bookmarks.some(bm => bm.url === url)) {
-        statusMessage.textContent = 'Already bookmarked!';
-        console.log('URL already bookmarked:', url);
+      // Prevent exact duplicates (same URL and type)
+      if (bookmarks.some(bm => bm.url === url && bm.type === type)) {
+        statusMessage.textContent = 'Already bookmarked as this type!';
         setTimeout(() => { statusMessage.textContent = ''; }, 2000);
         return;
       }
@@ -98,12 +140,10 @@ document.addEventListener('DOMContentLoaded', function() {
       chrome.storage.local.set({ bookmarks: bookmarks }, function() {
         if (chrome.runtime.lastError) {
           statusMessage.textContent = 'Error saving bookmark!';
-          console.error('Error saving bookmark:', chrome.runtime.lastError);
         } else {
-          statusMessage.textContent = 'Page bookmarked!';
-          console.log('Bookmark saved:', bookmark);
+          statusMessage.textContent = 'Bookmarked!';
         }
-        setTimeout(() => { statusMessage.textContent = ''; window.close(); }, 1500); // Clear message & close popup
+        setTimeout(() => { statusMessage.textContent = ''; window.close(); }, 1500);
       });
     });
   }

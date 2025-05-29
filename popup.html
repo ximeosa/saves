@@ -2,33 +2,117 @@
 <html>
 <head>
   <title>Advanced Bookmarker</title>
+  <meta charset="UTF-8">
   <style>
-    body {
-      font-family: sans-serif;
-      width: 300px;
-      padding: 10px;
-    }
-    h1 {
-      font-size: 16px;
-      margin-top: 0;
-    }
-    button {
-      width: 100%;
-      padding: 8px;
-      margin-top: 10px;
-      cursor: pointer;
-    }
-    #statusMessage {
-      margin-top: 10px;
-      font-size: 12px;
-      text-align: center;
-    }
+       body {
+         font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen, Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif; /* Modern system fonts */
+         width: 300px; /* Slightly narrower for a sleeker feel */
+         padding: 12px; /* Adjusted padding */
+         background-color: #ffffff; /* Cleaner white background */
+         color: #111111; /* Darker text for contrast */
+         margin: 0;
+         border-radius: 8px; /* Rounded corners for the popup body itself if possible (browser/OS dependent) */
+         box-shadow: 0 4px 12px rgba(0,0,0,0.15); /* Subtle shadow for the popup */
+       }
+       .header {
+         text-align: center;
+         margin-bottom: 18px; /* Increased margin */
+       }
+       .header h1 {
+         font-size: 17px; /* Slightly smaller */
+         font-weight: 600; /* Semibold */
+         color: #1f1f1f; 
+         margin: 0;
+       }
+       .bookmark-options button {
+         display: block;
+         width: 100%;
+         padding: 11px 15px; /* Adjusted padding */
+         margin-bottom: 10px; /* Increased margin */
+         border: none;
+         border-radius: 20px; /* Pill-shaped, more "modern" and "rounded" */
+         background-color: #007bff; /* Standard bootstrap primary blue - can adjust */
+         color: white;
+         font-size: 13px; /* Slightly smaller */
+         font-weight: 500; /* Medium weight */
+         cursor: pointer;
+         transition: background-color 0.2s ease, transform 0.1s ease;
+         box-sizing: border-box;
+         text-align: center;
+       }
+       .bookmark-options button:hover {
+         background-color: #0069d9; /* Darker blue */
+         transform: translateY(-1px); /* Subtle lift */
+       }
+       .bookmark-options button:active {
+         transform: translateY(0px); /* Click effect */
+         background-color: #005cbf;
+       }
+       .bookmark-options button[disabled] { /* Style for disabled buttons */
+         background-color: #cccccc;
+         color: #666666;
+         cursor: not-allowed;
+         opacity: 0.7;
+         transform: none;
+       }
+       .bookmark-options button.action-page { /* Specific style if needed */
+         /* background-color: #28a745; Green */
+       }
+       .bookmark-options button.action-video {
+         /* background-color: #dc3545; Red */
+       }
+       .bookmark-options button.action-channel {
+         /* background-color: #ffc107; Yellow/Orange */
+       }
+       .bookmark-options button.action-website {
+         /* background-color: #17a2b8; Cyan */
+       }
+
+       #statusMessage {
+         margin-top: 10px;
+         font-size: 12px;
+         text-align: center;
+         color: #333333;
+         min-height: 16px;
+         line-height: 1.4;
+       }
+       .footer-actions {
+         margin-top: 12px;
+         padding-top: 10px;
+         border-top: 1px solid #e0e0e0; /* Separator line */
+         text-align: center;
+       }
+       .footer-actions a {
+         color: #007bff;
+         text-decoration: none;
+         font-size: 12px;
+         font-weight: 500;
+         transition: color 0.2s ease;
+       }
+       .footer-actions a:hover {
+         color: #0056b3;
+         text-decoration: underline;
+       }
   </style>
 </head>
 <body>
-  <h1>Advanced Bookmarker</h1>
-  <button id="bookmarkBtn">Bookmark Current Page</button>
+  <div class="header">
+    <h1>Advanced Bookmarker</h1>
+  </div>
+
+  <div class="bookmark-options">
+    <button id="bookmarkPageBtn">Bookmark this Page</button>
+    <button id="bookmarkVideoBtn">Bookmark YouTube Video</button> <!-- Will be enabled/disabled based on context -->
+    <button id="bookmarkChannelBtn">Bookmark YouTube Channel</button> <!-- Will be enabled/disabled based on context -->
+    <button id="bookmarkWebsiteBtn">Bookmark this Website</button> 
+  </div>
+
   <div id="statusMessage"></div>
+
+  <div class="footer-actions">
+    <a href="#" id="viewBookmarksLink">View Saved Bookmarks</a>
+  </div>
+
   <script src="popup.js"></script>
 </body>
 </html>

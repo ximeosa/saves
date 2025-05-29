@@ -47,11 +47,27 @@
     if (videoId) {
       // High quality YouTube thumbnail
       result.thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
+      
       // Attempt to get channel icon from the page
-      const channelImg = document.querySelector('#meta-contents #avatar img, #meta #avatar img.yt-img-shadow, yt-img-shadow.ytd-video-owner-renderer#avatar img');
+      const channelImg = document.querySelector('ytd-video-owner-renderer #avatar img, ytd-channel-name #avatar img, #meta-contents #avatar img, #meta #avatar img.yt-img-shadow'); // More robust selector for channel avatar
       if (channelImg && channelImg.src) {
-        // For YouTube videos, we can store the channel image as the 'favicon'
-        result.faviconUrl = channelImg.src;
+        result.faviconUrl = channelImg.src; // This is the channel icon
+      }
+
+      const channelLinkElement = document.querySelector('ytd-video-owner-renderer .ytd-channel-name a, ytd-channel-name a.yt-simple-endpoint'); // Selector for channel link
+      if (channelLinkElement && channelLinkElement.href) {
+        result.extractedChannelUrl = channelLinkElement.href; // Custom field
+        const channelNameElement = channelLinkElement.querySelector('yt-formatted-string#text, #channel-title'); // Selector for channel name within the link
+        if (channelNameElement && channelNameElement.textContent) {
+          result.extractedChannelTitle = channelNameElement.textContent.trim(); // Custom field
+        } else {
+          // Fallback if specific name element isn't found but link is
+          result.extractedChannelTitle = new URL(channelLinkElement.href).pathname.split('/').pop(); // Get it from URL if possible
+          if(result.extractedChannelTitle.startsWith('@')) {
+              // it's a handle, try to make it more presentable
+              result.extractedChannelTitle = result.extractedChannelTitle.substring(1);
+          }
+        }
       }
     }
   }

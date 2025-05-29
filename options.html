@@ -3,207 +3,311 @@
 <head>
   <title>Advanced Bookmarker - Options</title>
   <style>
+    :root {
+      /* Default theme (Light Pastel) */
+      --theme-bg-primary: #f0f8ff; /* Light pastel background - AliceBlue */
+      --theme-bg-secondary: #ffffff; /* Card backgrounds, controls */
+      --theme-text-primary: #333333; /* Main text */
+      --theme-text-secondary: #555555; /* Subdued text */
+      --theme-accent-primary: #98fb98; /* Pastel green for accents */
+      --theme-accent-secondary: #dda0dd; /* Pastel purple for other accents */
+      --theme-border-color: #d3d3d3; /* Light grey border */
+      --theme-shadow-color: rgba(0,0,0,0.1);
+      --theme-button-bg: #e9ecef;
+      --theme-button-text: #495057;
+      --theme-button-hover-bg: #dee2e6;
+      --theme-link-color: #663399; /* Rebeccapurple as a pastel-ish link */
+    }
+
+    body[data-theme="dark_mode"] {
+      --theme-bg-primary: #0a192f;    /* Dark blue/black background */
+      --theme-bg-secondary: #172a45;  /* Card backgrounds - slightly lighter dark blue */
+      --theme-text-primary: #e6f1ff;  /* Light text for readability */
+      --theme-text-secondary: #a8b2d1;/* Subdued light text */
+      --theme-accent-primary: #00a8ff; /* Bright blue for accents */
+      --theme-accent-secondary: #304ffe;/* Another blue for other accents */
+      --theme-border-color: #303f5a;  /* Darker border */
+      --theme-shadow-color: rgba(0,0,0,0.3); /* Darker shadow */
+      --theme-button-bg: #233554;
+      --theme-button-text: #e6f1ff;
+      --theme-button-hover-bg: #304a6d;
+      --theme-link-color: #88ccff; /* Lighter blue for links */
+    }
+    
     body {
       font-family: sans-serif;
-      margin: 20px;
-      background-color: #f4f4f4;
+      margin: 0; /* Remove default margin */
+      background-color: var(--theme-bg-primary);
+      color: var(--theme-text-primary);
+      transition: background-color 0.3s, color 0.3s;
     }
-    .container {
-      background-color: #fff;
+    .container { /* Main content wrapper */
       padding: 20px;
+      max-width: 1200px; /* Or your preferred max width */
+      margin: 20px auto; /* Centering container with some top/bottom margin */
       border-radius: 8px;
-      box-shadow: 0 0 10px rgba(0,0,0,0.1);
     }
-    h1 {
-      font-size: 24px;
-      color: #333;
-      margin-bottom: 20px;
+    h1 { /* General H1, not settings/section specific */
+      color: var(--theme-text-primary);
+      margin-bottom: 20px; /* Kept from original */
+      font-size: 24px; /* Kept from original */
     }
-    .section-title {
-      font-size: 20px;
-      color: #555;
-      margin-top: 30px;
-      margin-bottom: 10px;
-      border-bottom: 1px solid #eee;
-      padding-bottom: 5px;
+    .settings-section h2, .section-title { /* Specific H2s */
+      color: var(--theme-text-primary);
+      border-bottom: 1px solid var(--theme-border-color);
+      font-size: 20px; /* Kept from original */
+      margin-top: 30px; /* Kept from original */
+      margin-bottom: 10px; /* Kept from original */
+      padding-bottom: 5px; /* Kept from original */
     }
+
     .bookmark-list {
       list-style-type: none;
       padding: 0;
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 20px;
+      margin-top: 15px;
     }
-    /* ... existing body, container, h1, section-title, bookmark-list ... */
+
     .bookmark-item {
-      background-color: #f9f9f9;
-      border: 1px solid #ddd;
-      padding: 10px;
-      margin-bottom: 8px;
-      border-radius: 4px;
-      display: flex; /* Keep flex */
-      align-items: flex-start; /* Align items to the top */
-      gap: 10px; /* Add some space between image and text */
+      background-color: var(--theme-bg-secondary);
+      border-radius: 8px;
+      box-shadow: 0 4px 8px var(--theme-shadow-color);
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      transition: box-shadow 0.3s ease, transform 0.2s ease;
     }
     .bookmark-item:hover {
-      background-color: #f1f1f1;
+      box-shadow: 0 6px 12px var(--theme-shadow-color); /* Adjusted for variable */
+      transform: translateY(-3px);
+    }
+
+    .bookmark-image-container {
+        width: 100%;
+        height: 150px;
+        overflow: hidden;
+        background-color: var(--theme-button-bg); /* Using button bg for placeholder container */
+        display: flex;
+        justify-content: center;
+        align-items: center;
     }
     .bookmark-image {
-      object-fit: cover; /* Crop image nicely */
-      border-radius: 3px;
-      flex-shrink: 0; /* Prevent image from shrinking */
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
     }
     .bookmark-favicon {
-      width: 32px; /* Standard favicon size */
-      height: 32px;
-      border: 1px solid #eee;
+        width: 48px;
+        height: 48px;
+        object-fit: contain;
+        padding: 5px;
     }
-    .bookmark-thumbnail {
-      width: 100px; /* Larger for thumbnails */
-      height: auto; /* Maintain aspect ratio, or set fixed height e.g. 60px */
-      max-height: 75px;
-      border: 1px solid #eee;
+    .bookmark-image-placeholder {
+        width: 100%;
+        height: 150px;
+        background-color: var(--theme-button-bg); /* Using button bg */
+        display: flex;
+        justify-content: center;
+        align-items: center;
+        color: var(--theme-text-secondary); /* Subdued text for placeholder */
+        font-size: 1.2em;
     }
+    .bookmark-image-placeholder::before {
+        content: "No Image";
+    }
+
     .bookmark-info {
-      flex-grow: 1; /* Allow text content to take remaining space */
+      padding: 15px;
+      flex-grow: 1;
       display: flex;
       flex-direction: column;
     }
     .bookmark-title {
-      font-weight: bold;
+      font-weight: 600;
       font-size: 1.1em;
-      margin-bottom: 3px;
+      color: var(--theme-text-primary);
+      margin-bottom: 8px;
+      line-height: 1.3;
     }
     .bookmark-url {
-      font-size: 0.9em;
-      color: #007bff;
+      font-size: 0.85em;
+      color: var(--theme-link-color);
       text-decoration: none;
-      word-break: break-all; /* Prevent long URLs from breaking layout */
-      margin-bottom: 3px;
+      word-break: break-all;
+      margin-bottom: 10px;
     }
     .bookmark-url:hover {
       text-decoration: underline;
     }
     .bookmark-selection-text {
-        font-size: 0.9em;
-        color: #333;
-        background-color: #e9e9e9;
-        padding: 4px;
-        border-radius: 3px;
-        margin-top: 4px;
-        margin-bottom: 4px;
+      font-size: 0.9em;
+      color: var(--theme-text-secondary);
+      background-color: var(--theme-bg-primary); /* Off-primary for slight contrast */
+      border: 1px solid var(--theme-border-color);
+      padding: 8px;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      font-style: italic;
     }
     .bookmark-date {
-        font-size: 0.8em;
-        color: #777;
-        margin-top: auto; /* Pushes date to bottom if info is flex column */
+      font-size: 0.75em;
+      color: var(--theme-text-secondary);
+      margin-top: auto;
     }
+
     .bookmark-actions {
-      margin-left: auto; /* Push actions to the far right */
-      padding-left: 10px; /* Space from text */
-      flex-shrink: 0; /* Prevent actions from shrinking */
+      padding: 10px 15px;
+      background-color: var(--theme-bg-primary); /* Off-primary for footer area */
+      border-top: 1px solid var(--theme-border-color);
+      display: flex;
+      justify-content: flex-end;
     }
     .bookmark-actions button {
       cursor: pointer;
-      padding: 5px 8px;
-      font-size: 0.9em;
-      border: 1px solid #ccc;
-      border-radius: 3px;
-      background-color: #e7e7e7;
+      padding: 6px 12px;
+      font-size: 0.85em;
+      border: 1px solid var(--theme-border-color); /* Use theme border */
+      border-radius: 4px;
+      background-color: var(--theme-button-bg);
+      color: var(--theme-button-text);
+      transition: background-color 0.2s ease;
     }
     .bookmark-actions button:hover {
-      background-color: #ddd;
+      background-color: var(--theme-button-hover-bg);
     }
+    
     /* D&D Styles */
     .dnd-enabled .bookmark-item {
-      cursor: move; /* Indicate draggable */
+      cursor: move;
     }
     .bookmark-item.dragging {
-      opacity: 0.5;
-      border: 1px dashed #007bff;
+      opacity: 0.6; /* Adjusted opacity */
+      box-shadow: 0 8px 16px var(--theme-shadow-color); /* More pronounced shadow */
+      border: 1px dashed var(--theme-accent-primary); /* Use accent for border */
     }
     .bookmark-item.drag-over {
-      background-color: #e0eafc; /* Highlight drop target */
-      border: 1px dashed #007bff;
+      background-color: var(--theme-accent-secondary); /* Use accent for highlight */
+      opacity: 0.7;
     }
-    /* ... existing controls styles ... */
-    .controls button, .controls input[type="file"], .controls .setting-toggle {
-      padding: 8px 15px;
-      margin-right: 10px;
-      margin-bottom: 10px; /* Add margin bottom for better spacing if they wrap */
-      cursor: pointer;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      background-color: #e7e7e7;
-      display: inline-flex; /* Align items nicely */
+    
+    /* Controls, Settings, Theme Selector */
+    .settings-section { /* Wrapper for all settings */
+        background-color: var(--theme-bg-secondary);
+        padding: 15px;
+        border-radius: 8px;
+        margin-bottom: 30px;
+        box-shadow: 0 2px 4px var(--theme-shadow-color);
+    }
+    .controls { /* Specific to import/export/dnd toggle row */
+      display: flex;
+      flex-wrap: wrap; /* Allow items to wrap */
       align-items: center;
+      gap: 10px; /* Space between control groups */
+      padding-bottom: 15px; /* Space before theme selector if it's separate */
+      border-bottom: 1px solid var(--theme-border-color); /* Separator line */
+      margin-bottom: 15px; /* Space after the controls row */
     }
-    .controls button:hover, .controls input[type="file"]:hover, .controls .setting-toggle:hover {
-      background-color: #ddd;
-    }
-    .setting-toggle {
-      border: none; /* Remove border from the div container */
-      background-color: transparent; /* Make container transparent */
-      padding: 0; /* Reset padding */
-    }
-    .setting-toggle label {
-      margin-right: 8px;
+    .controls button, 
+    .controls input[type="file"], 
+    .controls .setting-toggle, 
+    .theme-selector select {
+      padding: 8px 12px; /* Adjusted padding */
+      background-color: var(--theme-button-bg);
+      color: var(--theme-button-text); /* Use button text color */
+      border: 1px solid var(--theme-border-color);
+      border-radius: 4px;
       cursor: pointer;
+      transition: background-color 0.2s ease;
+    }
+    .controls button:hover, 
+    .controls input[type="file"]:hover, 
+    .controls .setting-toggle:hover, 
+    .theme-selector select:hover {
+      background-color: var(--theme-button-hover-bg);
+    }
+    .controls .setting-toggle { /* Div wrapping label and checkbox */
+        display: inline-flex; /* Align label and checkbox */
+        align-items: center;
+        background-color: transparent; /* Make the wrapper transparent */
+        border: none; /* No border for the wrapper */
+        padding: 0; /* Reset padding */
+    }
+    .setting-toggle label, .theme-selector label {
+        color: var(--theme-text-primary);
+        margin-right: 8px;
     }
     .setting-toggle input[type="checkbox"] {
-      width: 18px; /* Adjust size as needed */
+      width: 18px;
       height: 18px;
       cursor: pointer;
+      accent-color: var(--theme-accent-primary); /* Style checkbox color */
     }
-    .controls {
-      margin-top: 30px;
-      padding-top: 20px;
-      border-top: 1px solid #eee;
-    }
-    .controls button, .controls input[type="file"] {
-      padding: 8px 15px;
-      margin-right: 10px;
-      cursor: pointer;
-      border: 1px solid #ccc;
-      border-radius: 4px;
-      background-color: #e7e7e7;
-    }
-    .controls button:hover, .controls input[type="file"]:hover {
-      background-color: #ddd;
-    }
-    #importFileLabel {
+    #importFileLabel { /* Keep original margin if needed */
         margin-right: 10px;
     }
+    #importStatus {
+        color: var(--theme-text-secondary);
+        font-size: 0.9em;
+        margin-left: 10px;
+    }
+    .theme-selector {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+    .theme-selector select {
+        min-width: 200px; /* Give select some width */
+    }
+
   </style>
 </head>
 <body>
   <div class="container">
     <h1>My Bookmarks</h1>
 
-    <div class="controls">
-      <button id="exportBtn">Export Bookmarks</button>
-      <label for="importFile" id="importFileLabel">Import Bookmarks:</label>
-      <input type="file" id="importFile" accept=".json">
-      <span id="importStatus"></span>
-      
-      <div class="setting-toggle">
-        <label for="dragDropToggle">Enable Drag & Drop Reordering:</label>
-        <input type="checkbox" id="dragDropToggle">
+    <div class="settings-section">
+      <h2>Settings</h2>
+      <div class="controls">
+        <button id="exportBtn">Export Bookmarks</button>
+        <label for="importFile" id="importFileLabel">Import Bookmarks:</label>
+        <input type="file" id="importFile" accept=".json">
+        <span id="importStatus"></span>
+        
+        <div class="setting-toggle">
+          <label for="dragDropToggle">Enable Drag & Drop Reordering:</label>
+          <input type="checkbox" id="dragDropToggle">
+        </div>
+      </div>
+      <div class="theme-selector">
+        <label for="themeSelect">Select Theme:</label>
+        <select id="themeSelect">
+          <option value="light_pastel">Light (Pastel Green/Purple)</option>
+          <option value="dark_mode">Dark (Blue/Black)</option>
+          <option value="system_default">System Default</option>
+        </select>
       </div>
     </div>
 
     <h2 class="section-title">Websites & Pages</h2>
     <ul id="websitesList" class="bookmark-list">
-      <!-- Bookmarks will be dynamically inserted here -->
       <li class="bookmark-item">Placeholder for a website bookmark.</li>
     </ul>
 
-    <h2 class="section-title">YouTube Content</h2>
-    <ul id="youtubeList" class="bookmark-list">
-      <!-- YouTube bookmarks will be dynamically inserted here -->
-      <li class="bookmark-item">Placeholder for a YouTube video/channel.</li>
+    <h2 class="section-title">YouTube Videos</h2>
+    <ul id="youtubeVideosList" class="bookmark-list">
+      <!-- YouTube Videos will be dynamically inserted here -->
+    </ul>
+
+    <h2 class="section-title">YouTube Channels</h2>
+    <ul id="youtubeChannelsList" class="bookmark-list">
+      <!-- YouTube Channels will be dynamically inserted here -->
     </ul>
     
     <h2 class="section-title">Selections & Notes</h2>
     <ul id="selectionsList" class="bookmark-list">
-      <!-- Selection bookmarks will be dynamically inserted here -->
       <li class="bookmark-item">Placeholder for a text selection.</li>
     </ul>
 
