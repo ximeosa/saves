@@ -1,10 +1,46 @@
 // Listener for when the extension is installed or updated
 chrome.runtime.onInstalled.addListener(function() {
+  // Remove any existing context menus to avoid duplicates, then recreate
   chrome.contextMenus.removeAll(function() {
-    chrome.contextMenus.create({ id: "bookmarkPage", title: "Bookmark this page", contexts: ["page"] });
-    chrome.contextMenus.create({ id: "bookmarkYouTubeVideo", title: "Bookmark this YouTube video", contexts: ["video"], targetUrlPatterns: ["*://*.youtube.com/watch*", "*://*.youtube.com/embed/*"] });
-    chrome.contextMenus.create({ id: "bookmarkYouTubeChannel", title: "Bookmark this YouTube Channel/Link", contexts: ["link"], targetUrlPatterns: ["*://*.youtube.com/channel/*", "*://*.youtube.com/@*"] });
-    chrome.contextMenus.create({ id: "bookmarkSelection", title: "Bookmark selection", contexts: ["selection"] });
+    if (chrome.runtime.lastError) {
+        console.error("Error removing all context menus:", chrome.runtime.lastError);
+        // Proceeding anyway, as this might be a first install.
+    }
+    // Context menu for general pages
+    chrome.contextMenus.create({
+      id: "bookmarkPage",
+      title: "Bookmark this page",
+      contexts: ["page"]
+    });
+
+    // Context menu for YouTube videos
+    chrome.contextMenus.create({
+      id: "bookmarkYouTubeVideo",
+      title: "Bookmark this YouTube video",
+      contexts: ["video"],
+      targetUrlPatterns: ["*://*.youtube.com/watch*", "*://*.youtube.com/embed/*"]
+    });
+
+    // Context menu for YouTube channels (on links that are channel URLs)
+    chrome.contextMenus.create({
+      id: "bookmarkYouTubeChannel",
+      title: "Bookmark YouTube Channel", // Already updated in previous step
+      contexts: ["link"],
+      targetUrlPatterns: ["*://*.youtube.com/channel/*", "*://*.youtube.com/@*"]
+    });
+
+     // Context menu for any selected text
+    chrome.contextMenus.create({
+      id: "bookmarkSelection",
+      title: "Bookmark selection",
+      contexts: ["selection"]
+    });
+
+    if (chrome.runtime.lastError) {
+        console.error("Error creating context menus:", chrome.runtime.lastError.message);
+    } else {
+        console.log("All context menus created successfully.");
+    }
   });
 });
 

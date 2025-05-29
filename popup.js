@@ -51,17 +51,33 @@ document.addEventListener('DOMContentLoaded', function() {
       (injectionResults) => {
         if (chrome.runtime.lastError || !injectionResults || !injectionResults.length) {
           console.error("Content script injection failed:", chrome.runtime.lastError);
-          // Fallback: save with what we have, without content script info
-          let urlToSave = currentTabInfo.url;
-          if (intendedBookmarkType === 'website') {
-              urlToSave = new URL(currentTabInfo.url).origin;
+          
+          if (intendedBookmarkType === 'youtube_channel' && currentTabInfo.url.includes("youtube.com/watch")) {
+            // Trying to bookmark a channel from a video page, but content script failed.
+            statusMessage.textContent = 'Failed to get channel details (script error).';
+            setTimeout(() => { statusMessage.textContent = ''; window.close(); }, 2500);
+          } else if (intendedBookmarkType === 'youtube_channel' && !(currentTabInfo.url.includes("youtube.com/channel/") || currentTabInfo.url.includes("youtube.com/@"))) {
+            // Trying to bookmark a channel, but not on a channel page and not on a video page (or script failed from video page)
+            statusMessage.textContent = 'Cannot identify YouTube channel here.';
+            setTimeout(() => { statusMessage.textContent = ''; window.close(); }, 2500);
           }
-          // Title might need adjustment for 'website' type too
-          let titleToSave = intendedBookmarkType === 'website' ? new URL(currentTabInfo.url).hostname : currentTabInfo.title;
-
-          saveBookmark(titleToSave, urlToSave, null, null, intendedBookmarkType);
+          else {
+            // Fallback: save with what we have for 'page', 'website', or 'youtube_video',
+            // or for 'youtube_channel' if already on a channel page.
+            let urlToSave = currentTabInfo.url;
+            let titleToSave = currentTabInfo.title;
+            if (intendedBookmarkType === 'website') {
+                urlToSave = new URL(currentTabInfo.url).origin;
+                titleToSave = new URL(currentTabInfo.url).hostname;
+            }
+            // For youtube_channel type, if we are here, it means we are on a channel page itself,
+            // so currentTabInfo.url is the channel URL.
+            saveBookmark(titleToSave, urlToSave, null, null, intendedBookmarkType);
+          }
+          return; // Return after handling the error or fallback
         }
         // Success: wait for onMessage from content_script
+        console.log("Content script injected successfully for popup action.");
       }
     );
   }
@@ -75,38 +91,39 @@ document.addEventListener('DOMContentLoaded', function() {
   chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.action === "extractedPageInfo") {
       if (sender.tab && currentTabInfo && sender.tab.id === currentTabInfo.id) {
-        let finalTitle = request.data.pageTitle || currentTabInfo.title;
-        let finalUrl = currentTabInfo.url; // Use current tab URL, content script doesn't change it.
+        let finalTitle = request.data.pageTitle || currentTabInfo.title; // Prefer title from content script
+        let finalUrl = currentTabInfo.url; // Initialized to currentTabInfo.url
         let favicon = request.data.faviconUrl;
         let thumbnail = request.data.thumbnailUrl;
+        let proceedWithSave = true; // Flag to control if we should save
 
         if (intendedBookmarkType === 'website') {
           finalUrl = new URL(currentTabInfo.url).origin;
-          finalTitle = new URL(currentTabInfo.url).hostname; // Use hostname for website title
-          // Favicon from content script should ideally be for the domain.
-          // Thumbnail might not be relevant or could be a site screenshot (advanced).
-          thumbnail = null; // Typically no specific thumbnail for 'website' type from page content.
+          finalTitle = new URL(currentTabInfo.url).hostname; 
+          thumbnail = null; 
         } else if (intendedBookmarkType === 'youtube_channel') {
-          if (request.data.extractedChannelUrl) {
-            finalUrl = request.data.extractedChannelUrl; // Override URL to actual channel URL
-            finalTitle = request.data.extractedChannelTitle || finalTitle; // Override title to actual channel title
-            // Favicon should already be the channel icon from content script's logic
-            // Thumbnail might be the video's thumbnail if on video page, or channel banner if on channel page.
-            // For a channel bookmark, we might prefer the favicon (channel icon) as the thumbnail as well,
-            // or let the content script's logic for channel pages (banner/icon) decide.
-            // If we are on a video page, request.data.thumbnailUrl is the video thumbnail.
-            // We should use faviconUrl (channel icon) as thumbnail for channel bookmark.
-            if (currentTabInfo.url.includes("youtube.com/watch")) { // If originally on a video page
-                 thumbnail = favicon; // Use channel icon (already in favicon) as thumbnail for channel bookmark
+          if (request.data.extractedChannelUrl) { 
+            finalUrl = request.data.extractedChannelUrl; 
+            finalTitle = request.data.extractedChannelTitle || finalTitle; 
+            if (currentTabInfo.url.includes("youtube.com/watch")) { // If bookmarking channel from a video page
+                 thumbnail = favicon; // Use channel icon (in favicon) as thumbnail
             }
+            // If on actual channel page, content script's favicon (channel icon) and thumbnail (banner/icon) are used.
+          } else {
+            // CONTENT SCRIPT FAILED TO EXTRACT CHANNEL URL
+            // This happens if selectors failed or not on a recognizable video/channel page structure
+            // for channel extraction.
+            statusMessage.textContent = 'Could not extract channel details from this page.';
+            console.warn("YouTube Channel bookmark: content script did not return extractedChannelUrl. Original tab URL:", currentTabInfo.url);
+            proceedWithSave = false; // Do not save this bookmark
+            setTimeout(() => { statusMessage.textContent = ''; window.close(); }, 2500); // Close popup after message
           }
-          // If not on video page or channel info not found, it defaults to current page's info,
-          // which is fine if user is already on the channel page.
         }
-
-
-        statusMessage.textContent = `Bookmarking: ${finalTitle.substring(0,40)}...`;
-        saveBookmark(finalTitle, finalUrl, favicon, thumbnail, intendedBookmarkType);
+        
+        if (proceedWithSave) {
+          statusMessage.textContent = `Bookmarking: ${finalTitle.substring(0,40)}...`;
+          saveBookmark(finalTitle, finalUrl, favicon, thumbnail, intendedBookmarkType);
+        }
       }
       return true; 
     }
