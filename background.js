@@ -23,7 +23,7 @@ chrome.runtime.onInstalled.addListener(function() {
     // Context menu for YouTube channels (on links that are channel URLs)
     chrome.contextMenus.create({
       id: "bookmarkYouTubeChannel",
-      title: "Bookmark YouTube Channel", // Updated title
+      title: "Bookmark YouTube Channel", 
       contexts: ["link"],
       targetUrlPatterns: ["*://*.youtube.com/channel/*", "*://*.youtube.com/@*"]
     });
@@ -35,23 +35,20 @@ chrome.runtime.onInstalled.addListener(function() {
       contexts: ["selection"]
     });
 
-    // New context menu for bookmarking a YouTube video from a link/preview element
     chrome.contextMenus.create({
       id: "bookmarkVideoFromLink",
       title: "Bookmark YouTube Video (from link)",
       contexts: ["link"],
-      documentUrlPatterns: ["*://*.youtube.com/*"] // Added
+      documentUrlPatterns: ["*://*.youtube.com/*"] 
     });
 
-    // New context menu for bookmarking a YouTube channel from a link/preview element
     chrome.contextMenus.create({
       id: "bookmarkChannelFromLink",
       title: "Bookmark Channel (from link)",
       contexts: ["link"],
-      documentUrlPatterns: ["*://*.youtube.com/*"] // Added
+      documentUrlPatterns: ["*://*.youtube.com/*"] 
     });
 
-    // New context menu for bookmarking the current website (domain)
     chrome.contextMenus.create({
       id: "bookmarkWebsiteFromPage",
       title: "Bookmark this Website (Domain)",
@@ -66,7 +63,6 @@ chrome.runtime.onInstalled.addListener(function() {
   });
 });
 
-// Helper function to save bookmark data (centralized logic)
 function saveBookmarkToStorage(bookmarkData) {
   console.log("Attempting to save from background:", bookmarkData);
   chrome.storage.local.get({ bookmarks: [] }, function(data) {
@@ -96,18 +92,21 @@ function saveBookmarkToStorage(bookmarkData) {
   });
 }
 
-let pendingBookmarks = {}; // Store callbacks for pending bookmark operations
+let pendingBookmarks = {}; 
 
-function handleScriptInjectionResult(tabId, injectionResults) {
+// Modified handleScriptInjectionResult signature and body
+function handleScriptInjectionResult(tabId, injectionResults, bookmarkBaseForThisOperation) {
     if (chrome.runtime.lastError || !injectionResults || !injectionResults.length === 0) {
-        console.error(`Content script injection failed for tab ${tabId}:`, chrome.runtime.lastError?.message);
+        console.error(`[INJ_FAIL] Content script injection failed for tab ${tabId}:`, chrome.runtime.lastError?.message); // LOG A
         if (pendingBookmarks[tabId]) {
-            const { bookmarkBase, callback } = pendingBookmarks[tabId];
-            callback(bookmarkBase); 
+            // Use the specific bookmarkBase passed for this operation for the callback
+            const { callback } = pendingBookmarks[tabId]; 
+            console.log(`[INJ_FAIL] Invoking callback for tab ${tabId} with original bookmarkBase due to injection failure.`); // LOG B
+            callback(bookmarkBaseForThisOperation); // Use the correct bookmarkBase
             delete pendingBookmarks[tabId];
         }
     } else {
-        console.log(`Content script injected successfully for tab ${tabId}. Waiting for onMessage response.`);
+        console.log(`[INJ_SUCCESS] Content script injected successfully for tab ${tabId}. Waiting for onMessage response.`); // LOG C
     }
 }
 
@@ -126,20 +125,22 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         updatedTitle = bookmarkBase.title; 
         updatedThumbnailUrl = null;      
       } else if (bookmarkBase.type === 'youtube_channel') {
-        // When content script runs on the actual channel page (e.g. via temp tab),
-        // request.data.pageTitle is the actual channel title.
-        // request.data.faviconUrl is channel icon.
-        // request.data.thumbnailUrl is channel icon or banner.
-        // These are correctly assigned by the general mapping above.
+        updatedTitle = request.data.pageTitle || bookmarkBase.title; 
+        updatedFaviconUrl = request.data.faviconUrl || bookmarkBase.faviconUrl; 
+        updatedThumbnailUrl = request.data.thumbnailUrl || bookmarkBase.thumbnailUrl;
       }
       
       const fullBookmark = {
         ...bookmarkBase,
         title: updatedTitle,
-        url: isTempTab ? bookmarkBase.url : (request.data.pageUrl || bookmarkBase.url), // Ensure original URL from bookmarkBase is used for temp tabs
+        url: isTempTab ? bookmarkBase.url : (request.data.pageUrl || bookmarkBase.url),
         faviconUrl: updatedFaviconUrl,
         thumbnailUrl: updatedThumbnailUrl,
       };
+      if (isTempTab) { 
+          fullBookmark.url = bookmarkBase.url;
+      }
+
       callback(fullBookmark); 
       delete pendingBookmarks[tabId]; 
     }
@@ -147,7 +148,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   } else if (request.action === "parsedYouTubeLinkPreviewResults" && sender.tab && sender.tab.id) {
     console.log("Background received parsedYouTubeLinkPreviewResults:", request.data, "for tab:", sender.tab.id);
     const tabId = sender.tab.id; 
-    if (pendingBookmarks[tabId] && pendingBookmarks[tabId].isLinkParsing) { // Check for isLinkParsing flag
+    if (pendingBookmarks[tabId] && pendingBookmarks[tabId].isLinkParsing) {
         const { bookmarkBase, callback } = pendingBookmarks[tabId];
         if (request.error) {
             console.error("Error from content script parsing link preview:", request.error);
@@ -175,7 +176,7 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     }
     return true;
   }
-  return true; // Keep true for async possibilities
+  return true; 
 });
 
 chrome.contextMenus.onClicked.addListener(function(info, tab) {
@@ -201,7 +202,7 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
     thumbnailUrl: null
   };
 
-  let shouldInjectContentScript = true; // Default to injecting content script
+  let shouldInjectContentScript = true;
 
   if (info.menuItemId === "bookmarkPage") {
     bookmarkBase.url = pageUrl;
@@ -227,53 +228,68 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
     bookmarkBase.title = "YouTube Channel: " + linkUrl.substring(linkUrl.lastIndexOf('/') + 1).replace(/^@/, '');
     bookmarkBase.type = 'youtube_channel';
 
-    if (tab && tab.url === linkUrl) { // Already on the channel page
+    if (tab && tab.url === linkUrl) { 
         console.log("Bookmarking YouTube channel: User is already on the channel page.");
-        // Let shouldInjectContentScript remain true
-    } else if (tab && tab.id) { // Link on a different page, use temp tab
-        console.log("Bookmarking YouTube channel: Link is on a different page. Opening temp tab for", linkUrl);
-        shouldInjectContentScript = false; // Don't inject into current tab
-        chrome.tabs.create({ url: linkUrl, active: false }, function(newTab) {
+    } else if (tab && tab.id) { 
+        console.log("[CHAN_CTX] Starting temp tab process for URL:", linkUrl); // LOG 1
+        shouldInjectContentScript = false; 
+        const tempTabTargetUrl = linkUrl;
+        const originalBookmarkBaseForTempTab = { ...bookmarkBase }; // Clone bookmarkBase
+
+        chrome.tabs.create({ url: tempTabTargetUrl, active: false }, function(newTab) {
             if (chrome.runtime.lastError || !newTab || !newTab.id) {
-                console.error("Error creating temp tab:", chrome.runtime.lastError);
+                console.error("[CHAN_CTX] Error creating temp tab:", chrome.runtime.lastError?.message); // LOG 2
                 chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Could not open temporary tab to fetch channel info.' });
-                saveBookmarkToStorage(bookmarkBase); // Fallback: save basic info
+                saveBookmarkToStorage(originalBookmarkBaseForTempTab); // Fallback with original base
                 return;
             }
             const tempTabId = newTab.id;
+            console.log(`[CHAN_CTX] Temp tab ${tempTabId} created for ${tempTabTargetUrl}. Active: ${newTab.active}`); // LOG 3
+
             pendingBookmarks[tempTabId] = {
-                bookmarkBase, // Contains the correct channel URL and temporary title
+                bookmarkBase: originalBookmarkBaseForTempTab, 
                 callback: function(fullBookmarkData) {
+                    console.log(`[CHAN_CTX] Temp tab callback invoked for tab ${tempTabId}. Saving bookmark, then removing tab.`); // LOG 7
                     saveBookmarkToStorage(fullBookmarkData);
-                    chrome.tabs.remove(tempTabId, () => console.log("Temp tab removed:", tempTabId, chrome.runtime.lastError?.message || "Success"));
+                    chrome.tabs.remove(tempTabId, function() {
+                        if (chrome.runtime.lastError) {
+                            console.error(`[CHAN_CTX] Error removing temp tab ${tempTabId}:`, chrome.runtime.lastError.message); // LOG 8
+                        } else {
+                            console.log(`[CHAN_CTX] Temp tab ${tempTabId} removed successfully.`); // LOG 9
+                        }
+                    });
                 },
-                isTempTab: true
+                isTempTab: true 
             };
+
             function tempTabUpdateListener(updatedTabId, changeInfo, updatedTab) {
                 if (updatedTabId === tempTabId && changeInfo.status === 'complete') {
+                    console.log(`[CHAN_CTX] Temp tab ${tempTabId} status complete. Removing listener and injecting script.`); // LOG 4
                     chrome.tabs.onUpdated.removeListener(tempTabUpdateListener);
-                    console.log("Temp tab", tempTabId, "loaded. Injecting content script.");
                     chrome.scripting.executeScript(
                         { target: { tabId: tempTabId }, files: ['content_script.js'] },
-                        handleScriptInjectionResult.bind(null, tempTabId)
+                        (injectionResults) => handleScriptInjectionResult(tempTabId, injectionResults, originalBookmarkBaseForTempTab)
                     );
                 }
             }
             chrome.tabs.onUpdated.addListener(tempTabUpdateListener);
+
             setTimeout(() => {
                 if (pendingBookmarks[tempTabId]) { 
+                    console.warn(`[CHAN_CTX] Timeout for temp tab ${tempTabId}. Removing update listener.`); // LOG 5
                     chrome.tabs.onUpdated.removeListener(tempTabUpdateListener);
-                    console.warn("Timeout for temp tab", tempTabId);
                     chrome.tabs.get(tempTabId, (existingTab) => {
                         if (existingTab) {
+                            console.log(`[CHAN_CTX] Temp tab ${tempTabId} still exists after timeout. Attempting injection.`); // LOG 6
                             chrome.scripting.executeScript(
                                 { target: { tabId: tempTabId }, files: ['content_script.js'] },
-                                handleScriptInjectionResult.bind(null, tempTabId)
+                                (injectionResults) => handleScriptInjectionResult(tempTabId, injectionResults, originalBookmarkBaseForTempTab)
                             );
                         } else {
-                            console.error("Temp tab", tempTabId, "not found after timeout.");
-                            if (pendingBookmarks[tempTabId]) { // Check again before calling
-                                pendingBookmarks[tempTabId].callback(bookmarkBase);
+                            console.error(`[CHAN_CTX] Temp tab ${tempTabId} not found after timeout. Cleaning up pending bookmark.`);
+                            chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Failed to load channel page for info extraction (timeout).' });
+                            if (pendingBookmarks[tempTabId]) { 
+                                pendingBookmarks[tempTabId].callback(originalBookmarkBaseForTempTab); 
                                 delete pendingBookmarks[tempTabId];
                             }
                         }
@@ -281,10 +297,10 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
                 }
             }, 15000); 
         });
-        return; // This path is fully handled.
-    } else { // No source tab context for temp tab
+        return; 
+    } else { 
         console.warn("Cannot open temp tab for channel link, no source tab context (tab or tab.id missing).");
-        saveBookmarkToStorage(bookmarkBase); // Fallback: save basic info
+        saveBookmarkToStorage(bookmarkBase); 
         return;
     }
 
@@ -301,7 +317,7 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
        return;
     }
     const videoPageUrl = info.linkUrl;
-    shouldInjectContentScript = false; // We use sendMessage directly for this one
+    shouldInjectContentScript = false; 
     
     let videoId = 'video'; try { videoId = new URL(videoPageUrl).searchParams.get('v') || videoId; } catch(e){}
     bookmarkBase = { 
@@ -317,8 +333,8 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
         return;
       }
 
-      const currentPending = pendingBookmarks[tab.id]; // Get current pending data
-      delete pendingBookmarks[tab.id]; // Clean up immediately
+      const currentPending = pendingBookmarks[tab.id]; 
+      delete pendingBookmarks[tab.id]; 
 
       if (chrome.runtime.lastError || !response || !response.action || response.action !== "parsedYouTubeLinkPreviewResults" || !response.data) {
         console.error("Error with parseYouTubeLinkPreview response for video:", chrome.runtime.lastError?.message, response);
@@ -329,7 +345,7 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
       
       const details = response.data;
       const finalBookmark = {
-        ...currentPending.bookmarkBase, // Start with base (id, type, url, date, temp title)
+        ...currentPending.bookmarkBase, 
         title: details.videoTitle || currentPending.bookmarkBase.title, 
         url: details.videoUrl || videoPageUrl, 
         faviconUrl: details.channelIconUrl || null, 
@@ -355,7 +371,7 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
 
     chrome.tabs.sendMessage(tab.id, { action: "parseYouTubeLinkPreview", linkUrl: sourceLinkUrl }, function(response) {
       if (!(pendingBookmarks[tab.id] && pendingBookmarks[tab.id].isLinkParsing && pendingBookmarks[tab.id].bookmarkBase.url === sourceLinkUrl)) {
-        console.log("Stale or irrelevant parseYouTubeLinkPreview response for channel link, ignoring.");
+        console.log("[BG_ChanLink] Stale or irrelevant parseYouTubeLinkPreview response, ignoring."); // LOG BG_STALE_RESP
         return;
       }
       
@@ -363,23 +379,27 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
       delete pendingBookmarks[tab.id];
 
       if (chrome.runtime.lastError || !response || !response.action || response.action !== "parsedYouTubeLinkPreviewResults" || !response.data) {
-        console.error("Error with parseYouTubeLinkPreview for channel:", chrome.runtime.lastError?.message, response);
-        saveBookmarkToStorage(currentPending.bookmarkBase);
+        console.error("[BG_ChanLink] Error with parseYouTubeLinkPreview response:", chrome.runtime.lastError?.message, response); // LOG BG_RESP_ERR
+        saveBookmarkToStorage(currentPending.bookmarkBase); // Fallback to basic info from the link itself
         chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Could not get channel details from page (script error).' });
         return;
       }
       const details = response.data;
+      console.log("[BG_ChanLink] Received details from content script:", JSON.parse(JSON.stringify(details))); // LOG BG_DETAILS_RECV
+
       if (details.channelUrl && details.channelTitle) {
-        const finalBookmark = {
-          ...currentPending.bookmarkBase, 
+        const bookmarkData = {
+          ...currentPending.bookmarkBase, // Keep original ID, type, added_date
           title: details.channelTitle,
-          url: details.channelUrl, 
+          url: details.channelUrl, // Use parsed channel URL
           faviconUrl: details.channelIconUrl || null, 
-          thumbnailUrl: details.channelIconUrl || null, 
+          thumbnailUrl: details.channelIconUrl || null, // Use icon as thumbnail
         };
-        saveBookmarkToStorage(finalBookmark);
+        console.log("[BG_ChanLink] Preparing to save bookmarkData:", JSON.parse(JSON.stringify(bookmarkData))); // LOG BG_BOOKMARK_DATA
+        saveBookmarkToStorage(bookmarkData);
       } else {
-        saveBookmarkToStorage(currentPending.bookmarkBase); 
+        console.warn("[BG_ChanLink] Could not extract valid channel URL or title from details:", JSON.parse(JSON.stringify(details))); // LOG BG_FAIL_EXTRACT
+        saveBookmarkToStorage(currentPending.bookmarkBase); // Fallback to basic info
         chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Action Failed', message: 'Could not identify channel from this link/preview.' });
       }
     });
@@ -392,31 +412,26 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
       bookmarkBase.url = currentUrl.origin;
       bookmarkBase.title = currentUrl.hostname; 
       bookmarkBase.type = 'website';
-      // Let shouldInjectContentScript remain true to get favicon
     } catch (e) { 
         console.error("Error parsing pageUrl for website bookmark:", e);
         chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Could not determine website domain from URL.'});
         return; 
     }
   
-  } else { // Unknown menu item
+  } else { 
     console.error("Unknown context menu item clicked:", info.menuItemId);
     return;
   }
 
-  // Common script injection logic (if not returned already by a specific handler)
   if (shouldInjectContentScript && tab && tab.id) {
+    // Pass the current bookmarkBase to handleScriptInjectionResult's closure
     pendingBookmarks[tab.id] = { bookmarkBase, callback: saveBookmarkToStorage };
     chrome.scripting.executeScript(
         { target: { tabId: tab.id }, files: ['content_script.js'] },
-        handleScriptInjectionResult.bind(null, tab.id)
+        (injectionResults) => handleScriptInjectionResult(tab.id, injectionResults, bookmarkBase) // Pass bookmarkBase
     );
   } else if (!shouldInjectContentScript && bookmarkBase.url) {
-    // This case should ideally not be hit if all specific handlers that set
-    // shouldInjectContentScript=false also 'return' or have their own saving logic.
-    // If it is hit, it means a direct save is needed without script injection.
-    // console.warn("Executing direct save for a case where shouldInjectContentScript was false and handler did not return:", bookmarkBase);
-    // saveBookmarkToStorage(bookmarkBase); // This line was commented out as per previous logic.
+    console.warn("Not injecting script and no other save path taken for:", bookmarkBase);
   } else if (!tab || !tab.id && shouldInjectContentScript) {
       console.error("Cannot inject script, tab ID not available for bookmark type:", bookmarkBase.type);
   }

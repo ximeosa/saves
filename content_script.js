@@ -76,9 +76,9 @@ function extractInitialPageInfo() {
 
   // 5. Ensure URLs are absolute
   try {
-    if (result.faviconUrl && !result.faviconUrl.startsWith('http') && window.location.origin) { result.faviconUrl = new URL(result.faviconUrl, window.location.origin).href; }
-    if (result.thumbnailUrl && !result.thumbnailUrl.startsWith('http') && window.location.origin) { result.thumbnailUrl = new URL(result.thumbnailUrl, window.location.origin).href; }
-    if (result.extractedChannelUrl && !result.extractedChannelUrl.startsWith('http') && window.location.origin) { result.extractedChannelUrl = new URL(result.extractedChannelUrl, window.location.origin).href; }
+    if (result.faviconUrl && !result.faviconUrl.startsWith('http') && !result.faviconUrl.startsWith('data:') && window.location.origin) { result.faviconUrl = new URL(result.faviconUrl, window.location.origin).href; }
+    if (result.thumbnailUrl && !result.thumbnailUrl.startsWith('http') && !result.thumbnailUrl.startsWith('data:') && window.location.origin) { result.thumbnailUrl = new URL(result.thumbnailUrl, window.location.origin).href; }
+    if (result.extractedChannelUrl && !result.extractedChannelUrl.startsWith('http') && !result.extractedChannelUrl.startsWith('data:') && window.location.origin) { result.extractedChannelUrl = new URL(result.extractedChannelUrl, window.location.origin).href; }
   } catch (e) {
     console.warn("Error constructing absolute URL:", e);
   }
@@ -94,29 +94,26 @@ function parseYouTubeLinkPreview(linkUrl) {
         videoThumbnailUrl: null,
         channelUrl: null,
         channelTitle: null,
-        channelIconUrl: null // Usually not available in compact previews directly
+        channelIconUrl: null 
     };
 
     if (!linkUrl || !linkUrl.includes("youtube.com/watch")) {
         console.warn("parseYouTubeLinkPreview: linkUrl is not a direct YouTube video link or is missing.", linkUrl);
-        // If not a direct video link, we cannot reliably proceed without more context (e.g., the clicked element itself)
         return details; 
     }
     details.videoUrl = linkUrl;
 
-    // Try to find an anchor element that matches the linkUrl and is part of a known preview structure
-    const videoLinkElements = Array.from(document.querySelectorAll(`a[href="${details.videoUrl}"], a[href^="${details.videoUrl.split('&')[0]}"]`)); // Handle cases where URL might have extra params like &list=...
+    const videoLinkElements = Array.from(document.querySelectorAll(`a[href="${details.videoUrl}"], a[href^="${details.videoUrl.split('&')[0]}"]`)); 
     
     let videoLinkElement = videoLinkElements.find(a => 
-        a.id === 'video-title' || // Common ID for titles in detailed views/grids
-        a.matches('h3.title-and-badge a.yt-simple-endpoint') || // For grid items
-        a.closest('ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer, ytd-video-renderer, ytd-playlist-panel-video-renderer') // Common preview containers
+        a.id === 'video-title' || 
+        a.matches('h3.title-and-badge a.yt-simple-endpoint') || 
+        a.closest('ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer, ytd-video-renderer, ytd-playlist-panel-video-renderer') 
     );
-     if (!videoLinkElement && videoLinkElements.length > 0) videoLinkElement = videoLinkElements[0]; // Fallback to first match
+     if (!videoLinkElement && videoLinkElements.length > 0) videoLinkElement = videoLinkElements[0]; 
 
     if (!videoLinkElement) {
         console.warn("parseYouTubeLinkPreview: Could not find a suitable DOM element for video link:", details.videoUrl);
-        // Fallback: extract video ID and generate standard thumbnail, use page title
         if (details.videoUrl) {
             try {
                 const url = new URL(details.videoUrl);
@@ -124,47 +121,71 @@ function parseYouTubeLinkPreview(linkUrl) {
                 if (videoId) {
                     details.videoThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
                 }
-                details.videoTitle = document.title; // Fallback to page title, not ideal
+                details.videoTitle = document.title; 
             } catch (e) { console.error("Error parsing video URL for fallback details", e); }
         }
+        console.log("[CS_ParseLink] Function was called with linkUrl:", linkUrl);
+        console.log("[CS_ParseLink] Identified videoUrl for this context:", details.videoUrl);
+        console.log("[CS_ParseLink] FINAL details object (no videoLinkElement):", JSON.parse(JSON.stringify(details)));
         return details;
     }
 
     const previewContainer = videoLinkElement.closest('ytd-compact-video-renderer, ytd-grid-video-renderer, ytd-rich-item-renderer, ytd-video-renderer, ytd-playlist-panel-video-renderer, div#dismissible');
 
     if (previewContainer) {
-        // Extract Video Title
         const titleElement = previewContainer.querySelector('#video-title, .title-and-badge a h3 .yt-core-attributed-string, #video-title-link yt-formatted-string, #meta h3 yt-formatted-string');
         if (titleElement) details.videoTitle = titleElement.textContent.trim();
         else details.videoTitle = videoLinkElement.getAttribute('title') || videoLinkElement.textContent.trim() || "YouTube Video";
+        console.log("[CS_ParseLink] Extracted videoTitle:", details.videoTitle); 
 
-        // Extract Video Thumbnail
         const imgElement = previewContainer.querySelector('yt-image img[src*="ytimg.com/vi/"], img.yt-core-image--loaded[src*="ytimg.com/vi/"]');
         if (imgElement && imgElement.src) {
-            details.videoThumbnailUrl = imgElement.src.split('?')[0]; // Clean URL
-        } else { // Fallback for thumbnails if specific img not found
+            details.videoThumbnailUrl = imgElement.src.split('?')[0]; 
+        } else { 
              try {
                 const url = new URL(details.videoUrl);
                 const videoId = url.searchParams.get('v');
                 if (videoId) details.videoThumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`;
              } catch(e) { console.warn("Error parsing videoId for thumbnail fallback", e); }
         }
+        console.log("[CS_ParseLink] Extracted videoThumbnailUrl:", details.videoThumbnailUrl); 
         
-        // Extract Channel Info
         const channelNameElement = previewContainer.querySelector('#channel-name yt-formatted-string, #text.ytd-channel-name, .ytd-channel-name yt-formatted-string, #byline-container yt-formatted-string, .byline');
         if (channelNameElement) details.channelTitle = channelNameElement.textContent.trim();
+        console.log("[CS_ParseLink] Attempted channelTitle from dedicated element:", details.channelTitle); 
 
         const channelLinkElement = previewContainer.querySelector('ytd-channel-name a.yt-simple-endpoint, #byline-container a.yt-simple-endpoint, a.yt-simple-endpoint.yt-formatted-string[href*="/channel/"], a.yt-simple-endpoint.yt-formatted-string[href*="/@"]');
         if (channelLinkElement && channelLinkElement.href) {
             details.channelUrl = channelLinkElement.href;
+            console.log("[CS_ParseLink] Extracted channelUrl from dedicated link:", details.channelUrl); 
             if (!details.channelTitle) { 
-                 try {
-                    let pathName = new URL(details.channelUrl).pathname.split('/').pop();
-                    details.channelTitle = pathName.startsWith('@') ? pathName.substring(1) : pathName;
-                 } catch(e) { console.warn("Error parsing channel link for title fallback", e); }
+                 details.channelTitle = channelLinkElement.textContent.trim().split('\n')[0].trim() || new URL(details.channelUrl).pathname.split('/').pop().replace(/^@/, '');
+                 console.log("[CS_ParseLink] Fallback channelTitle from link text or URL:", details.channelTitle);
             }
+        } else {
+            console.warn("[CS_ParseLink] Could not find dedicated channelLinkElement."); 
         }
-    } else { // Fallback if no container found
+        if (details.channelUrl && !details.channelUrl.startsWith('http') && window.location.origin) { 
+            try { details.channelUrl = new URL(details.channelUrl, window.location.origin).href; } catch(e) { console.warn("Error making channel URL absolute", e); }
+        }
+        
+        // Attempt to find channel icon within the preview container
+        const channelAvatarInPreview = previewContainer.querySelector(
+            '#avatar-link yt-img-shadow img, a.yt-simple-endpoint yt-img-shadow#avatar img, .ytd-channel-name yt-img-shadow img'
+        );
+        if (channelAvatarInPreview && channelAvatarInPreview.src) {
+            details.channelIconUrl = channelAvatarInPreview.src;
+            console.log("[CS_ParseLink] Extracted channelIconUrl from preview:", details.channelIconUrl); // LOG C_ICON
+        } else {
+            console.warn("[CS_ParseLink] Could not find channelIconUrl in preview."); // LOG C_ICON_FAIL
+        }
+        // Ensure channelIconUrl is absolute (though src from img tags usually are)
+        if (details.channelIconUrl && !details.channelIconUrl.startsWith('http') && !details.channelIconUrl.startsWith('data:') && window.location.origin) {
+             try { details.channelIconUrl = new URL(details.channelIconUrl, window.location.origin).href; } catch (e) { console.warn("Error making channel icon URL absolute", e); }
+        }
+
+    } else {
+        console.warn("[CS_ParseLink] No previewContainer found for linkUrl:", linkUrl);
         details.videoTitle = videoLinkElement.getAttribute('aria-label') || videoLinkElement.getAttribute('title') || document.title;
         if (details.videoUrl) {
             try {
@@ -176,20 +197,20 @@ function parseYouTubeLinkPreview(linkUrl) {
     }
     
     try {
-      if (details.videoThumbnailUrl && !details.videoThumbnailUrl.startsWith('http') && window.location.origin) { details.videoThumbnailUrl = new URL(details.videoThumbnailUrl, window.location.origin).href; }
-      if (details.channelUrl && !details.channelUrl.startsWith('http') && window.location.origin) { details.channelUrl = new URL(details.channelUrl, window.location.origin).href; }
+      if (details.videoThumbnailUrl && !details.videoThumbnailUrl.startsWith('http') && !details.videoThumbnailUrl.startsWith('data:') && window.location.origin) { details.videoThumbnailUrl = new URL(details.videoThumbnailUrl, window.location.origin).href; }
     } catch (e) {
-      console.warn("Error constructing absolute URL for preview details:", e);
+      console.warn("Error constructing absolute URL for preview details (thumbnail):", e);
     }
-
-    console.log("Parsed YouTube Link Preview:", details);
+    
+    console.log("[CS_ParseLink] Function was called with linkUrl:", linkUrl);
+    console.log("[CS_ParseLink] Identified videoUrl for this context:", details.videoUrl);
+    console.log("[CS_ParseLink] FINAL details object:", JSON.parse(JSON.stringify(details))); 
     return details;
 }
 
 
 // Main execution logic for content script
 (function() {
-  // 1. Send initial page info when script is first injected
   if (chrome.runtime && chrome.runtime.sendMessage) {
       try {
         const initialInfo = extractInitialPageInfo();
@@ -200,7 +221,6 @@ function parseYouTubeLinkPreview(linkUrl) {
       }
   }
 
-  // 2. Listen for messages from the background script
   if (chrome.runtime && chrome.runtime.onMessage) {
     chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       console.log("Content script received message:", request);
@@ -212,7 +232,7 @@ function parseYouTubeLinkPreview(linkUrl) {
             console.error("Error parsing YouTube link preview:", e);
             sendResponse({ action: "parsedYouTubeLinkPreviewResults", error: e.message, data: {} });
         }
-        return true; // Indicates asynchronous response
+        return true; 
       } else if (request.action === "getFaviconForWebsite") { 
         try {
             let faviconResult = { faviconUrl: null };
@@ -227,7 +247,7 @@ function parseYouTubeLinkPreview(linkUrl) {
             if (!faviconResult.faviconUrl && window.location.origin) { 
                 try { faviconResult.faviconUrl = new URL('/favicon.ico', window.location.origin).href; } catch(e) { console.warn("Error creating favicon URL:", e); }
             }
-            if (faviconResult.faviconUrl && !faviconResult.faviconUrl.startsWith('http') && window.location.origin) { 
+            if (faviconResult.faviconUrl && !faviconResult.faviconUrl.startsWith('http') && !faviconResult.faviconUrl.startsWith('data:') && window.location.origin) { 
                 try { faviconResult.faviconUrl = new URL(faviconResult.faviconUrl, window.location.origin).href; } catch(e) { console.warn("Error constructing absolute favicon URL:", e); }
             }
             sendResponse({ action: "faviconForWebsiteResults", data: faviconResult });
