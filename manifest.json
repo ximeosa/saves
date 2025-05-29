@@ -8,7 +8,8 @@
     "activeTab",
     "contextMenus",
     "scripting",
-    "notifications"
+    "notifications",
+    "tabs"
   ],
   "icons": {
     "16": "icons/16.png",
