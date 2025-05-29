@@ -150,24 +150,80 @@ function parseYouTubeLinkPreview(linkUrl) {
         }
         console.log("[CS_ParseLink] Extracted videoThumbnailUrl:", details.videoThumbnailUrl); 
         
-        const channelNameElement = previewContainer.querySelector('#channel-name yt-formatted-string, #text.ytd-channel-name, .ytd-channel-name yt-formatted-string, #byline-container yt-formatted-string, .byline');
-        if (channelNameElement) details.channelTitle = channelNameElement.textContent.trim();
-        console.log("[CS_ParseLink] Attempted channelTitle from dedicated element:", details.channelTitle); 
+        // --- START New Channel Info Extraction Logic ---
+        details.channelTitle = null; // Reset before trying
+        details.channelUrl = null;   // Reset before trying
 
-        const channelLinkElement = previewContainer.querySelector('ytd-channel-name a.yt-simple-endpoint, #byline-container a.yt-simple-endpoint, a.yt-simple-endpoint.yt-formatted-string[href*="/channel/"], a.yt-simple-endpoint.yt-formatted-string[href*="/@"]');
-        if (channelLinkElement && channelLinkElement.href) {
-            details.channelUrl = channelLinkElement.href;
-            console.log("[CS_ParseLink] Extracted channelUrl from dedicated link:", details.channelUrl); 
-            if (!details.channelTitle) { 
-                 details.channelTitle = channelLinkElement.textContent.trim().split('\n')[0].trim() || new URL(details.channelUrl).pathname.split('/').pop().replace(/^@/, '');
-                 console.log("[CS_ParseLink] Fallback channelTitle from link text or URL:", details.channelTitle);
+        console.log("[CS_ParseLink_Chan] Attempting to find channel information within previewContainer:", previewContainer);
+
+        // Attempt 1: Look for common channel name text elements
+        const channelNameSelectors = [
+            '#channel-name yt-formatted-string.ytd-channel-name', // Preferred for some renderers
+            'yt-formatted-string.ytd-channel-name',                 // General
+            '.ytd-video-meta-block #channel-name yt-formatted-string',
+            '#byline.ytd-video-meta-block yt-formatted-string',       // Compact/video list items
+            '.ytd-channel-name#text.yt-formatted-string'              // Another common pattern
+        ];
+        for (const selector of channelNameSelectors) {
+            const nameEl = previewContainer.querySelector(selector);
+            if (nameEl && nameEl.textContent) {
+                details.channelTitle = nameEl.textContent.trim();
+                console.log(`[CS_ParseLink_Chan] Found channelTitle using selector '${selector}':`, details.channelTitle);
+                break;
+            }
+        }
+        if (!details.channelTitle) {
+            console.warn("[CS_ParseLink_Chan] Channel title not found using primary selectors.");
+        }
+
+        // Attempt 2: Look for common channel link elements
+        const channelLinkSelectors = [
+            '#channel-name a.yt-simple-endpoint',                                  // If name itself is a link
+            'ytd-channel-name a.yt-simple-endpoint',                               // If name container has a link
+            '#avatar-link.yt-simple-endpoint[href*="/@"], #avatar-link.yt-simple-endpoint[href*="/channel/"]', // Link around avatar
+            'a.yt-simple-endpoint.ytd-video-meta-block[href*="/@"]',             // Link in byline (handle)
+            'a.yt-simple-endpoint.ytd-video-meta-block[href*="/channel/"]',      // Link in byline (channel ID)
+            '.metadata a.yt-simple-endpoint[href*="/@"]',                         // More general metadata links
+            '.metadata a.yt-simple-endpoint[href*="/channel/"]'
+        ];
+        let channelLinkElement = null;
+        for (const selector of channelLinkSelectors) {
+            const linkEl = previewContainer.querySelector(selector);
+            if (linkEl && linkEl.href) {
+                details.channelUrl = linkEl.href;
+                channelLinkElement = linkEl; // Save for potential title fallback
+                console.log(`[CS_ParseLink_Chan] Found channelUrl using selector '${selector}':`, details.channelUrl);
+                break;
+            }
+        }
+        
+        if (details.channelUrl) {
+            // If we found a URL but not a title yet, try to get title from the link's text content or attributes
+            if (!details.channelTitle && channelLinkElement) {
+                details.channelTitle = channelLinkElement.title || channelLinkElement.textContent.trim().split('\n').find(s => s.trim()) || '';
+                console.log("[CS_ParseLink_Chan] Fallback channelTitle from found channelLinkElement text/title:", details.channelTitle);
+                if (!details.channelTitle) { // Final fallback from URL if text is empty
+                    try {
+                        details.channelTitle = new URL(details.channelUrl).pathname.split('/').pop().replace(/^@/, '');
+                        console.log("[CS_ParseLink_Chan] Fallback channelTitle from channelUrl pathname:", details.channelTitle);
+                    } catch (e) { console.warn("[CS_ParseLink_Chan] Could not parse channelUrl for fallback title", e); }
+                }
+            }
+            // Ensure Channel URL is absolute
+            if (details.channelUrl && !details.channelUrl.startsWith('http') && window.location.origin) {
+                try {
+                    details.channelUrl = new URL(details.channelUrl, window.location.origin).href;
+                } catch (e) { console.warn("[CS_ParseLink_Chan] Failed to make channelUrl absolute:", e); details.channelUrl = null; }
             }
         } else {
-            console.warn("[CS_ParseLink] Could not find dedicated channelLinkElement."); 
+            console.warn("[CS_ParseLink_Chan] Channel URL not found using any selectors.");
         }
-        if (details.channelUrl && !details.channelUrl.startsWith('http') && window.location.origin) { 
-            try { details.channelUrl = new URL(details.channelUrl, window.location.origin).href; } catch(e) { console.warn("Error making channel URL absolute", e); }
+        
+        // If title was found but URL wasn't, this is less useful, but log it.
+        if (details.channelTitle && !details.channelUrl) {
+            console.warn("[CS_ParseLink_Chan] Found channelTitle but NO channelUrl:", details.channelTitle);
         }
+        // --- End of new Channel Info Extraction Logic ---
         
         // Attempt to find channel icon within the preview container
         const channelAvatarInPreview = previewContainer.querySelector(
@@ -175,13 +231,13 @@ function parseYouTubeLinkPreview(linkUrl) {
         );
         if (channelAvatarInPreview && channelAvatarInPreview.src) {
             details.channelIconUrl = channelAvatarInPreview.src;
-            console.log("[CS_ParseLink] Extracted channelIconUrl from preview:", details.channelIconUrl); // LOG C_ICON
+            console.log("[CS_ParseLink_Chan] Extracted channelIconUrl from preview:", details.channelIconUrl); 
         } else {
-            console.warn("[CS_ParseLink] Could not find channelIconUrl in preview."); // LOG C_ICON_FAIL
+            console.warn("[CS_ParseLink_Chan] Could not find channelIconUrl in preview."); 
         }
         // Ensure channelIconUrl is absolute (though src from img tags usually are)
         if (details.channelIconUrl && !details.channelIconUrl.startsWith('http') && !details.channelIconUrl.startsWith('data:') && window.location.origin) {
-             try { details.channelIconUrl = new URL(details.channelIconUrl, window.location.origin).href; } catch (e) { console.warn("Error making channel icon URL absolute", e); }
+             try { details.channelIconUrl = new URL(details.channelIconUrl, window.location.origin).href; } catch (e) { console.warn("[CS_ParseLink_Chan] Failed to make channelIconUrl absolute:", e); details.channelIconUrl = null; }
         }
 
     } else {
