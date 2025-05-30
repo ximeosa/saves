@@ -5,7 +5,17 @@ function extractInitialPageInfo() {
     thumbnailUrl: null,
     pageTitle: document.title,
     extractedChannelUrl: null, // For channel info from video page
-    extractedChannelTitle: null // For channel info from video page
+    extractedChannelTitle: null, // For channel info from video page
+    // Initialize debug fields
+    debug_cs_isWatchPage: false,
+    debug_cs_channelImgFound: false,
+    debug_cs_channelImgSrc: null,
+    debug_cs_channelLinkElementFound: false,
+    debug_cs_channelLinkElementHref: null,
+    debug_cs_channelNameElementFound: false,
+    debug_cs_channelNameContent: null,
+    debug_cs_usedFallbackChannelTitle: false,
+    debug_cs_fallbackChannelTitle: null
   };
 
   // 1. Try to get favicon
@@ -40,6 +50,7 @@ function extractInitialPageInfo() {
   // 3. Special handling for YouTube video page specifics
   if (window.location.hostname.includes("youtube.com") && window.location.pathname.includes("/watch")) {
     console.log('[CS_ExtractInfo_VideoPage] Processing as video page.');
+    result.debug_cs_isWatchPage = true;
     const videoId = new URLSearchParams(window.location.search).get('v');
     console.log('[CS_ExtractInfo_VideoPage] videoId:', videoId);
 
@@ -50,58 +61,139 @@ function extractInitialPageInfo() {
       console.log('[CS_ExtractInfo_VideoPage] Attempting channelImg with selector:', channelImgSelector);
       const channelImg = document.querySelector(channelImgSelector);
       console.log('[CS_ExtractInfo_VideoPage] channelImg found:', channelImg);
+      result.debug_cs_channelImgFound = !!channelImg;
       if (channelImg && channelImg.src) {
         result.faviconUrl = channelImg.src; // Channel icon as favicon
+        result.debug_cs_channelImgSrc = channelImg.src;
         console.log('[CS_ExtractInfo_VideoPage] channelImg.src set to result.faviconUrl:', channelImg.src);
       } else {
         console.log('[CS_ExtractInfo_VideoPage] channelImg not found or no src.');
       }
       
-      const channelLinkSelector = 'ytd-video-owner-renderer .ytd-channel-name a, ytd-channel-name a.yt-simple-endpoint';
-      console.log('[CS_ExtractInfo_VideoPage] Attempting channelLinkElement with selector:', channelLinkSelector);
-      const channelLinkElement = document.querySelector(channelLinkSelector);
-      console.log('[CS_ExtractInfo_VideoPage] channelLinkElement found:', channelLinkElement);
+      const channelLinkSelectors = [
+          'ytd-video-owner-renderer .ytd-channel-name a.yt-simple-endpoint', 
+          'ytd-video-owner-renderer #owner-name a.yt-simple-endpoint', 
+          'ytd-video-owner-renderer #channel-name a.yt-simple-endpoint', 
+          'ytd-video-owner-renderer a.yt-simple-endpoint[href*="/@"]',
+          'ytd-video-owner-renderer a.yt-simple-endpoint[href*="/channel/"]',
+          '#meta-contents .ytd-video-owner-renderer #channel-name a.yt-simple-endpoint',
+          '#owner .ytd-channel-name a.yt-simple-endpoint', 
+          '#info .ytd-channel-name a.yt-simple-endpoint'   
+      ];
+      let channelLinkElement = null;
+      for (const selector of channelLinkSelectors) {
+          channelLinkElement = document.querySelector(selector);
+          if (channelLinkElement) {
+              console.log('[CS_ExtractInfo_VideoPage] channelLinkElement found with selector:', selector, channelLinkElement);
+              break;
+          }
+      }
+      console.log('[CS_ExtractInfo_VideoPage] Final channelLinkElement found:', channelLinkElement); // Log after loop
+      result.debug_cs_channelLinkElementFound = !!channelLinkElement;
 
       if (channelLinkElement && channelLinkElement.href) {
         result.extractedChannelUrl = channelLinkElement.href;
+        result.debug_cs_channelLinkElementHref = channelLinkElement.href;
         console.log('[CS_ExtractInfo_VideoPage] channelLinkElement.href set to result.extractedChannelUrl:', channelLinkElement.href);
         
-        const channelNameSelector = 'yt-formatted-string#text, #channel-title';
-        console.log('[CS_ExtractInfo_VideoPage] Attempting channelNameElement within channelLinkElement using selector:', channelNameSelector);
-        const channelNameElement = channelLinkElement.querySelector(channelNameSelector);
-        console.log('[CS_ExtractInfo_VideoPage] channelNameElement found:', channelNameElement);
-
-        if (channelNameElement && channelNameElement.textContent) {
-          result.extractedChannelTitle = channelNameElement.textContent.trim();
-          console.log('[CS_ExtractInfo_VideoPage] channelNameElement.textContent set to result.extractedChannelTitle:', result.extractedChannelTitle);
-        } else {
-          try {
-            let pathName = new URL(channelLinkElement.href).pathname.split('/').pop();
-            result.extractedChannelTitle = pathName.startsWith('@') ? pathName.substring(1) : pathName;
-            console.log('[CS_ExtractInfo_VideoPage] channelNameElement not found or no textContent. Using fallback title from channelLinkElement.href. Fallback title:', result.extractedChannelTitle);
-          } catch(e) { 
-            console.warn("Error parsing channel link for title fallback", e); 
-            console.log('[CS_ExtractInfo_VideoPage] channelNameElement not found AND no fallback title extracted (error during fallback).');
-          }
+        const channelNameSelectors = [
+            'yt-formatted-string#text', 
+            '#channel-title',          
+            'yt-formatted-string.ytd-channel-name' 
+        ];
+        let channelNameElement = null;
+        // if (channelLinkElement) { // Already checked channelLinkElement exists
+        for (const selector of channelNameSelectors) {
+            channelNameElement = channelLinkElement.querySelector(selector);
+            if (channelNameElement && channelNameElement.textContent.trim()) {
+                console.log('[CS_ExtractInfo_VideoPage] channelNameElement found within channelLinkElement with selector:', selector, channelNameElement);
+                break;
+            } else {
+                channelNameElement = null; 
+            }
         }
+        // }
+        console.log('[CS_ExtractInfo_VideoPage] Final channelNameElement found:', channelNameElement); // Log after loop
+        result.debug_cs_channelNameElementFound = !!channelNameElement;
+
+        if (channelNameElement && channelNameElement.textContent.trim()) {
+          result.extractedChannelTitle = channelNameElement.textContent.trim();
+          result.debug_cs_channelNameContent = result.extractedChannelTitle;
+          result.debug_cs_usedFallbackChannelTitle = false;
+          result.debug_cs_fallbackChannelTitle = null;
+          console.log('[CS_ExtractInfo_VideoPage] channelNameElement.textContent set to result.extractedChannelTitle:', result.extractedChannelTitle);
+        } else if (channelLinkElement) { // Fallback if name element not found/empty, but link element exists
+            const linkText = channelLinkElement.textContent?.trim();
+            if (linkText) {
+                result.extractedChannelTitle = linkText;
+                console.log('[CS_ExtractInfo_VideoPage] Used channelLinkElement.textContent for extractedChannelTitle:', result.extractedChannelTitle);
+                result.debug_cs_usedFallbackChannelTitle = true;
+                result.debug_cs_fallbackChannelTitle = linkText;
+                result.debug_cs_channelNameContent = null; // No specific element, but used its text
+            } else {
+                try {
+                    let pathName = new URL(channelLinkElement.href).pathname.split('/').pop();
+                    result.extractedChannelTitle = pathName.startsWith('@') ? pathName.substring(1) : pathName;
+                    result.debug_cs_usedFallbackChannelTitle = true;
+                    result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle;
+                    console.log('[CS_ExtractInfo_VideoPage] channelNameElement/linkText not found. Using fallback title from channelLinkElement.href. Fallback title:', result.extractedChannelTitle);
+                } catch(e) { 
+                    console.warn("Error parsing channel link for title fallback", e); 
+                    result.debug_cs_usedFallbackChannelTitle = false; // Failed this fallback too
+                    result.debug_cs_fallbackChannelTitle = null;
+                    console.log('[CS_ExtractInfo_VideoPage] channelNameElement not found AND no fallback title extracted (error during fallback).');
+                }
+            }
+        } else {
+             result.debug_cs_usedFallbackChannelTitle = false;
+             result.debug_cs_fallbackChannelTitle = null;
+        }
+
       } else {
         console.log('[CS_ExtractInfo_VideoPage] channelLinkElement NOT found or no href. result.extractedChannelUrl will be null.');
+        // debug fields for channelNameElement, usedFallbackChannelTitle, fallbackChannelTitle already initialized to false/null
         console.log('[CS_ExtractInfo_VideoPage] result.extractedChannelTitle remains:', result.extractedChannelTitle);
       }
     } else {
       console.log('[CS_ExtractInfo_VideoPage] Video ID not found in URL parameters.');
+       // All debug_cs_ fields for video page specifics remain as initially set (false/null)
     }
   }
   // 4. Special handling for YouTube channel page specifics
   else if (window.location.hostname.includes("youtube.com") && (window.location.pathname.startsWith("/channel/") || window.location.pathname.startsWith("/@"))) {
-    const channelIcon = document.querySelector('#avatar img.yt-img-shadow, yt-img-shadow#avatar img.yt-img-shadow, #channel-header #avatar img'); // Added #channel-header selector
+    console.log('[CS_ExtractInfo_ChannelPage] Processing as channel page.');
+    result.debug_cs_isWatchPage = false; // Ensure this is false for channel pages
+
+    result.extractedChannelUrl = window.location.href;
+    console.log('[CS_ExtractInfo_ChannelPage] result.extractedChannelUrl set to:', result.extractedChannelUrl);
+
+    const specificChannelTitleElement = document.querySelector('yt-formatted-string#text.ytd-channel-name, yt-formatted-string.ytd-channel-name.ytd-c4-tabbed-header-renderer, #channel-header yt-formatted-string#text.ytd-channel-name, #name yt-formatted-string#text');
+    console.log('[CS_ExtractInfo_ChannelPage] specificChannelTitleElement found:', specificChannelTitleElement);
+    if (specificChannelTitleElement && specificChannelTitleElement.textContent) {
+        result.extractedChannelTitle = specificChannelTitleElement.textContent.trim();
+    } else {
+        result.extractedChannelTitle = document.title.replace(/ - YouTube$/, '').trim();
+    }
+    console.log('[CS_ExtractInfo_ChannelPage] result.extractedChannelTitle set to:', result.extractedChannelTitle);
+    
+    // Set relevant debug fields for channel page context
+    result.debug_cs_channelLinkElementFound = true; // Since URL is window.location.href
+    result.debug_cs_channelLinkElementHref = result.extractedChannelUrl;
+    result.debug_cs_channelNameElementFound = !!specificChannelTitleElement;
+    result.debug_cs_channelNameContent = result.extractedChannelTitle; // Best guess given the logic
+    result.debug_cs_usedFallbackChannelTitle = !specificChannelTitleElement;
+
+
+    const channelIcon = document.querySelector('#avatar img.yt-img-shadow, yt-img-shadow#avatar img.yt-img-shadow, #channel-header #avatar img');
     if (channelIcon && channelIcon.src) {
-      result.faviconUrl = channelIcon.src; // Use channel icon as favicon
-      result.thumbnailUrl = channelIcon.src; // And also as thumbnail for consistency if no banner exists
+      result.faviconUrl = channelIcon.src; 
+      result.thumbnailUrl = channelIcon.src; 
+      result.debug_cs_channelImgFound = true;
+      result.debug_cs_channelImgSrc = channelIcon.src;
       
       const channelBanner = document.querySelector('#contentContainer #header #banner img, tp-yt-profile-header-renderer #banner img');
       if(channelBanner && channelBanner.src && channelBanner.src.startsWith('http')){
-        result.thumbnailUrl = channelBanner.src;
+        result.thumbnailUrl = channelBanner.src; // Override thumbnail if banner found
       }
     }
   }
