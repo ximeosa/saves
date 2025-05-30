@@ -401,44 +401,57 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
     pendingBookmarks[tab.id] = { bookmarkBase, callback: saveBookmarkToStorage, isLinkParsing: true };
 
     chrome.tabs.sendMessage(tab.id, { action: "parseYouTubeLinkPreview", linkUrl: sourceLinkUrl }, function(response) {
+      // Ensure there's a pending bookmark for this tab and URL. If not, response is stale/irrelevant.
       if (!(pendingBookmarks[tab.id] && pendingBookmarks[tab.id].isLinkParsing && pendingBookmarks[tab.id].bookmarkBase.url === sourceLinkUrl)) {
-        console.log("[BG_ChanLink] Stale or irrelevant parseYouTubeLinkPreview response, ignoring."); // LOG BG_STALE_RESP
+        console.log("[BG_ChanLink] Stale or irrelevant parseYouTubeLinkPreview response, ignoring for tab %s and URL %s.", tab.id, sourceLinkUrl);
+        // If pendingBookmarks[tab.id] still exists but for a different URL/purpose, do not delete it here.
+        // If it was for this exact operation but is now mismatched, it implies a logic error or race condition.
         return;
       }
       
       const currentPending = pendingBookmarks[tab.id];
-      delete pendingBookmarks[tab.id];
+      delete pendingBookmarks[tab.id]; // Clean up immediately
 
-      if (chrome.runtime.lastError || !response || !response.action || response.action !== "parsedYouTubeLinkPreviewResults" || !response.data) {
-        console.error("[BG_ChanLink] Error with parseYouTubeLinkPreview response:", chrome.runtime.lastError?.message, response); // LOG BG_RESP_ERR
-        saveBookmarkToStorage(currentPending.bookmarkBase); // Fallback to basic info from the link itself
-        chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Could not get channel details from page (script error).' });
-        return;
-      }
-      const details = response.data;
-      console.log("[BG_ChanLink] Received details from content script:", JSON.parse(JSON.stringify(details))); // LOG BG_DETAILS_RECV
-
-      // Check if channelUrl and channelTitle are present and valid (not null, undefined, or empty strings)
-      if (details.channelUrl && typeof details.channelUrl === 'string' && details.channelUrl.trim() !== '' &&
-          details.channelTitle && typeof details.channelTitle === 'string' && details.channelTitle.trim() !== '') {
-        const bookmarkData = {
-          ...currentPending.bookmarkBase, // Keep original ID, type, added_date
-          title: details.channelTitle.trim(), // Use parsed channel title
-          url: details.channelUrl.trim(),     // Use parsed channel URL
-          faviconUrl: details.channelIconUrl || null, 
-          thumbnailUrl: details.channelIconUrl || null, // Use icon as thumbnail
-        };
-        console.log("[BG_ChanLink] Preparing to save bookmarkData:", JSON.parse(JSON.stringify(bookmarkData))); // LOG BG_BOOKMARK_DATA
-        saveBookmarkToStorage(bookmarkData);
-      } else {
-        // If channelUrl or channelTitle is missing or invalid, show a notification and do not save.
-        console.warn("[BG_ChanLink] Could not extract valid channel URL or title from details:", JSON.parse(JSON.stringify(details))); // LOG BG_FAIL_EXTRACT
+      // 3. Handle chrome.runtime.lastError or Invalid Response
+      if (chrome.runtime.lastError || !response || response.action !== "parsedYouTubeLinkPreviewResults" || !response.data) {
+        console.error("[BG_ChanLink] Failed to get valid details from content script for 'bookmarkChannelFromLink'. Error: %s, Response: %o", chrome.runtime.lastError?.message, response);
         chrome.notifications.create({
           type: 'basic',
           iconUrl: 'icons/48.png',
-          title: 'Channel Info Not Found',
-          message: 'Could not extract complete channel details from the link. No bookmark was saved for this item.'
+          title: 'Failed to Get Details',
+          message: 'Could not fetch information from the page. No bookmark saved.'
         });
+        // Do NOT call saveBookmarkToStorage
+        return;
+      }
+
+      // 4. Process Valid Response
+      const details = response.data;
+      console.log("[BG_ChanLink] Received details from content script for 'bookmarkChannelFromLink':", details);
+
+      // Check if channelUrl and channelTitle are present and valid
+      if (details.channelUrl && typeof details.channelUrl === 'string' && details.channelUrl.trim() !== '' &&
+          details.channelTitle && typeof details.channelTitle === 'string' && details.channelTitle.trim() !== '') {
+        
+        const bookmarkData = {
+          ...currentPending.bookmarkBase, // Includes id, type='youtube_channel', added_date
+          title: details.channelTitle.trim(),
+          url: details.channelUrl.trim(),
+          faviconUrl: details.channelIconUrl || null, 
+          thumbnailUrl: details.channelIconUrl || null, // Use channel icon as thumbnail
+        };
+        console.log("[BG_ChanLink] Preparing to save bookmarkData for 'bookmarkChannelFromLink':", JSON.parse(JSON.stringify(bookmarkData)));
+        saveBookmarkToStorage(bookmarkData);
+      } else {
+        // Valid response structure, but essential details (channelUrl or channelTitle) are missing
+        console.warn("[BG_ChanLink] Content script did not return full channel details (URL or Title missing). Details: %o", details);
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/48.png',
+          title: 'Channel Info Incomplete',
+          message: 'Could not extract complete channel information from this link. No bookmark saved.'
+        });
+        // Do NOT call saveBookmarkToStorage
       }
     });
     return;
