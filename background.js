@@ -317,8 +317,15 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         };
         pending.callback(dataForP1Callback, pending); // Calls processChannelUrlFromVideoP1, passes full pending
         
-        // Tab removal for P1 is handled by processChannelUrlFromVideoP1 after P2 is launched or if P1 fails to get URL.
-        delete pendingBookmarks[tabId]; // Delete P1 pending bookmark *after* callback might have initiated P2.
+        console.log("[BG_ChanFromLink_P1] Attempting to remove temp video tab (P1) after callback:", tabId);
+        chrome.tabs.remove(tabId, () => { 
+            if (chrome.runtime.lastError) {
+                console.error("[BG_ChanFromLink_P1] Error removing temp video tab (P1) %s after callback: %s", tabId, chrome.runtime.lastError.message);
+            } else {
+                console.log("[BG_ChanFromLink_P1] Temp video tab (P1) %s removed successfully after callback.", tabId);
+            }
+        });
+        delete pendingBookmarks[tabId]; 
         return true; 
       
       } else if (pending.operation === 'getDefinitiveChannelInfoP2') { // For P2 of "Bookmark Channel (from link)"
