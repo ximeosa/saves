@@ -64,7 +64,12 @@ chrome.runtime.onInstalled.addListener(function() {
 });
 
 function saveBookmarkToStorage(bookmarkData) {
-  console.log("Attempting to save from background:", bookmarkData);
+  console.log("[CHAN_CTX_DEBUG] saveBookmarkToStorage called with:", JSON.stringify(bookmarkData));
+  const isFallback = bookmarkData.isFallbackSave === true;
+  if (bookmarkData.hasOwnProperty('isFallbackSave')) {
+    delete bookmarkData.isFallbackSave; // Clean the property before saving
+  }
+  // console.log("Attempting to save from background:", bookmarkData); // Original log
   chrome.storage.local.get({ bookmarks: [] }, function(data) {
     let bookmarks = data.bookmarks;
     let alreadyExists = false;
@@ -75,18 +80,23 @@ function saveBookmarkToStorage(bookmarkData) {
     }
 
     if (alreadyExists) {
-      console.log('Background: Item already bookmarked.', bookmarkData.url, bookmarkData.title);
+      console.log("[CHAN_CTX_DEBUG] Bookmark already exists for URL:", bookmarkData.url, "Type:", bookmarkData.type);
+      // console.log('Background: Item already bookmarked.', bookmarkData.url, bookmarkData.title); // Original log
       chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Already Bookmarked', message: `"${bookmarkData.title.substring(0,30)}..." is already in your bookmarks.` });
       return;
     }
-    bookmarks.unshift(bookmarkData);
+    bookmarks.unshift(bookmarkData); // bookmarkData no longer has isFallbackSave here
     chrome.storage.local.set({ bookmarks: bookmarks }, function() {
       if (chrome.runtime.lastError) {
         console.error('Background: Error saving bookmark:', chrome.runtime.lastError);
         chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: `Failed to save bookmark: ${bookmarkData.title.substring(0,30)}...` });
       } else {
         console.log('Background: Bookmark saved successfully!', bookmarkData);
-        chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Bookmarked!', message: `"${bookmarkData.title.substring(0,30)}..." saved.` });
+        if (isFallback) {
+          chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Bookmarked (Basic Info)', message: `"${bookmarkData.title.substring(0,30)}..." saved. Full details couldn't be fetched.` });
+        } else {
+          chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Bookmarked!', message: `"${bookmarkData.title.substring(0,30)}..." saved.` });
+        }
       }
     });
   });
@@ -97,12 +107,17 @@ let pendingBookmarks = {};
 // Modified handleScriptInjectionResult signature and body
 function handleScriptInjectionResult(tabId, injectionResults, bookmarkBaseForThisOperation) {
     if (chrome.runtime.lastError || !injectionResults || !injectionResults.length === 0) {
-        console.error(`[INJ_FAIL] Content script injection failed for tab ${tabId}:`, chrome.runtime.lastError?.message); // LOG A
+        const errorMessage = chrome.runtime.lastError?.message || "No injection results returned.";
+        console.error(`[INJ_FAIL] Content script injection failed for tab ${tabId}:`, errorMessage); // LOG A
+        
         if (pendingBookmarks[tabId]) {
-            // Use the specific bookmarkBase passed for this operation for the callback
-            const { callback } = pendingBookmarks[tabId]; 
+            const { callback, isTempTab } = pendingBookmarks[tabId]; 
+            if (isTempTab) { // Check if this is related to a temp tab for channel bookmarking
+                console.log("[CHAN_CTX_DEBUG] Script injection failed for temp tab %s. Calling callback with basic info. Error: %s", tabId, errorMessage);
+                bookmarkBaseForThisOperation.isFallbackSave = true; // Mark as fallback
+            }
             console.log(`[INJ_FAIL] Invoking callback for tab ${tabId} with original bookmarkBase due to injection failure.`); // LOG B
-            callback(bookmarkBaseForThisOperation); // Use the correct bookmarkBase
+            callback(bookmarkBaseForThisOperation); 
             delete pendingBookmarks[tabId];
         }
     } else {
@@ -112,10 +127,15 @@ function handleScriptInjectionResult(tabId, injectionResults, bookmarkBaseForThi
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   if (request.action === "extractedPageInfo" && sender.tab && sender.tab.id) {
-    console.log("Background received page info from content script:", request.data, "for tab:", sender.tab.id);
+    // console.log("Background received page info from content script:", request.data, "for tab:", sender.tab.id); // Original log
     const tabId = sender.tab.id;
     if (pendingBookmarks[tabId]) {
       const { bookmarkBase, callback, isTempTab } = pendingBookmarks[tabId]; 
+      if (isTempTab) {
+        console.log("[CHAN_CTX_DEBUG] Received extractedPageInfo from temp tab:", sender.tab.id, "Data:", request.data);
+      } else {
+        console.log("Background received page info from content script:", request.data, "for tab:", sender.tab.id);
+      }
 
       let updatedTitle = request.data.pageTitle || bookmarkBase.title;
       let updatedFaviconUrl = request.data.faviconUrl || null;
@@ -138,7 +158,8 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
         thumbnailUrl: updatedThumbnailUrl,
       };
       if (isTempTab) { 
-          fullBookmark.url = bookmarkBase.url;
+          fullBookmark.url = bookmarkBase.url; // Ensure original URL for temp tab derived bookmarks
+          console.log("[CHAN_CTX_DEBUG] Pending bookmark data for temp tab %s before calling save:", tabId, JSON.stringify(fullBookmark));
       }
 
       callback(fullBookmark); 
@@ -231,19 +252,22 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
     if (tab && tab.url === linkUrl) { 
         console.log("Bookmarking YouTube channel: User is already on the channel page.");
     } else if (tab && tab.id) { 
-        console.log("[CHAN_CTX] Starting temp tab process for URL:", linkUrl); // LOG 1
+        // console.log("[CHAN_CTX] Starting temp tab process for URL:", linkUrl); // LOG 1 // Original log
         shouldInjectContentScript = false; 
         const tempTabTargetUrl = linkUrl;
-        const originalBookmarkBaseForTempTab = { ...bookmarkBase }; // Clone bookmarkBase
+        console.log("[CHAN_CTX_DEBUG] Creating temp tab for URL:", tempTabTargetUrl);
+        const originalBookmarkBaseForTempTab = { ...bookmarkBase }; 
 
         chrome.tabs.create({ url: tempTabTargetUrl, active: false }, function(newTab) {
-            if (chrome.runtime.lastError || !newTab || !newTab.id) {
+            const tempTabId = newTab ? newTab.id : null;
+            console.log("[CHAN_CTX_DEBUG] Temp tab created with ID:", tempTabId, "Error:", chrome.runtime.lastError ? chrome.runtime.lastError.message : "None");
+            if (chrome.runtime.lastError || !newTab || !tempTabId) {
                 console.error("[CHAN_CTX] Error creating temp tab:", chrome.runtime.lastError?.message); // LOG 2
                 chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Could not open temporary tab to fetch channel info.' });
-                saveBookmarkToStorage(originalBookmarkBaseForTempTab); // Fallback with original base
+                saveBookmarkToStorage(originalBookmarkBaseForTempTab); 
                 return;
             }
-            const tempTabId = newTab.id;
+            // const tempTabId = newTab.id; // Already assigned
             console.log(`[CHAN_CTX] Temp tab ${tempTabId} created for ${tempTabTargetUrl}. Active: ${newTab.active}`); // LOG 3
 
             pendingBookmarks[tempTabId] = {
@@ -251,9 +275,10 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
                 callback: function(fullBookmarkData) {
                     console.log(`[CHAN_CTX] Temp tab callback invoked for tab ${tempTabId}. Saving bookmark, then removing tab.`); // LOG 7
                     saveBookmarkToStorage(fullBookmarkData);
+                    console.log("[CHAN_CTX_DEBUG] Attempting to remove temp tab:", tempTabId);
                     chrome.tabs.remove(tempTabId, function() {
                         if (chrome.runtime.lastError) {
-                            console.error(`[CHAN_CTX] Error removing temp tab ${tempTabId}:`, chrome.runtime.lastError.message); // LOG 8
+                            console.error(`[CHAN_CTX_DEBUG] Error removing temp tab ${tempTabId}:`, chrome.runtime.lastError.message); // LOG 8
                         } else {
                             console.log(`[CHAN_CTX] Temp tab ${tempTabId} removed successfully.`); // LOG 9
                         }
@@ -276,20 +301,25 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
 
             setTimeout(() => {
                 if (pendingBookmarks[tempTabId]) { 
-                    console.warn(`[CHAN_CTX] Timeout for temp tab ${tempTabId}. Removing update listener.`); // LOG 5
+                    console.warn(`[CHAN_CTX_DEBUG] Timeout for temp tab ${tempTabId}. Calling callback with basic info.`); // LOG 5 (adjusted prefix)
                     chrome.tabs.onUpdated.removeListener(tempTabUpdateListener);
+                    
+                    const timedOutBookmarkBase = pendingBookmarks[tempTabId].bookmarkBase;
+                    timedOutBookmarkBase.isFallbackSave = true; // Mark as fallback before processing
+
                     chrome.tabs.get(tempTabId, (existingTab) => {
                         if (existingTab) {
-                            console.log(`[CHAN_CTX] Temp tab ${tempTabId} still exists after timeout. Attempting injection.`); // LOG 6
+                            console.log(`[CHAN_CTX] Temp tab ${tempTabId} still exists after timeout. Attempting injection (will also be fallback).`); // LOG 6
+                            // Even if injection works now, it's still a fallback due to timeout path
                             chrome.scripting.executeScript(
                                 { target: { tabId: tempTabId }, files: ['content_script.js'] },
-                                (injectionResults) => handleScriptInjectionResult(tempTabId, injectionResults, originalBookmarkBaseForTempTab)
+                                (injectionResults) => handleScriptInjectionResult(tempTabId, injectionResults, timedOutBookmarkBase) // Pass timedOutBookmarkBase
                             );
                         } else {
                             console.error(`[CHAN_CTX] Temp tab ${tempTabId} not found after timeout. Cleaning up pending bookmark.`);
                             chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Failed to load channel page for info extraction (timeout).' });
                             if (pendingBookmarks[tempTabId]) { 
-                                pendingBookmarks[tempTabId].callback(originalBookmarkBaseForTempTab); 
+                                pendingBookmarks[tempTabId].callback(timedOutBookmarkBase); 
                                 delete pendingBookmarks[tempTabId];
                             }
                         }
@@ -300,6 +330,7 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
         return; 
     } else { 
         console.warn("Cannot open temp tab for channel link, no source tab context (tab or tab.id missing).");
+        console.log("[CHAN_CTX_DEBUG] Calling saveBookmarkToStorage directly (no temp tab created):", JSON.stringify(bookmarkBase));
         saveBookmarkToStorage(bookmarkBase); 
         return;
     }
@@ -387,20 +418,27 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
       const details = response.data;
       console.log("[BG_ChanLink] Received details from content script:", JSON.parse(JSON.stringify(details))); // LOG BG_DETAILS_RECV
 
-      if (details.channelUrl && details.channelTitle) {
+      // Check if channelUrl and channelTitle are present and valid (not null, undefined, or empty strings)
+      if (details.channelUrl && typeof details.channelUrl === 'string' && details.channelUrl.trim() !== '' &&
+          details.channelTitle && typeof details.channelTitle === 'string' && details.channelTitle.trim() !== '') {
         const bookmarkData = {
           ...currentPending.bookmarkBase, // Keep original ID, type, added_date
-          title: details.channelTitle,
-          url: details.channelUrl, // Use parsed channel URL
+          title: details.channelTitle.trim(), // Use parsed channel title
+          url: details.channelUrl.trim(),     // Use parsed channel URL
           faviconUrl: details.channelIconUrl || null, 
           thumbnailUrl: details.channelIconUrl || null, // Use icon as thumbnail
         };
         console.log("[BG_ChanLink] Preparing to save bookmarkData:", JSON.parse(JSON.stringify(bookmarkData))); // LOG BG_BOOKMARK_DATA
         saveBookmarkToStorage(bookmarkData);
       } else {
+        // If channelUrl or channelTitle is missing or invalid, show a notification and do not save.
         console.warn("[BG_ChanLink] Could not extract valid channel URL or title from details:", JSON.parse(JSON.stringify(details))); // LOG BG_FAIL_EXTRACT
-        saveBookmarkToStorage(currentPending.bookmarkBase); // Fallback to basic info
-        chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Action Failed', message: 'Could not identify channel from this link/preview.' });
+        chrome.notifications.create({
+          type: 'basic',
+          iconUrl: 'icons/48.png',
+          title: 'Channel Info Not Found',
+          message: 'Could not extract complete channel details from the link. No bookmark was saved for this item.'
+        });
       }
     });
     return;
