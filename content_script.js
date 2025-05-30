@@ -116,20 +116,21 @@ function extractInitialPageInfo() {
         result.debug_cs_channelLinkElementHref = channelLinkElement.href;
         console.log('[CS_ExtractInfo_VideoPage] channelLinkElement.href set to result.extractedChannelUrl:', channelLinkElement.href);
         
-        // Part 2.3: Refined logic for extractedChannelTitle on video pages
+        // Part 2.3: Refined logic for extractedChannelTitle on video pages (ensure this reflects the intended logic)
         result.extractedChannelTitle = null; 
         result.debug_cs_usedFallbackChannelTitle = false;
         result.debug_cs_fallbackChannelTitle = null;
         result.debug_cs_channelNameElementFound = false; 
         result.debug_cs_channelNameContent = null;    
 
-        const currentChannelNameSelectors = [ // Using the variable name from the existing code after previous diff
+        const channelNameSelectors = [ // Reverting to 'channelNameSelectors' as per original instruction for this part, was 'currentChannelNameSelectors'
             'yt-formatted-string#text', 
             '#channel-title',          
             'yt-formatted-string.ytd-channel-name' 
         ];
         let channelNameElement = null;
-        for (const selector of currentChannelNameSelectors) { 
+        // Search within channelLinkElement first
+        for (const selector of channelNameSelectors) { 
             channelNameElement = channelLinkElement.querySelector(selector);
             if (channelNameElement && channelNameElement.textContent?.trim()) {
                 console.log('[CS_ExtractInfo_VideoPage] channelNameElement found within channelLinkElement with selector:', selector, channelNameElement);
@@ -139,37 +140,38 @@ function extractInitialPageInfo() {
                 break; 
             }
         }
-        // Log after the loop to show the final state of channelNameElement for this attempt
         console.log('[CS_ExtractInfo_VideoPage] Final channelNameElement after specific selectors query:', channelNameElement);
         
+        // If not found via specific child, try link's own text content
         if (!result.extractedChannelTitle && channelLinkElement.textContent?.trim()) {
             const linkText = channelLinkElement.textContent.trim();
-            // Avoid using excessively long or non-descriptive link texts
-            if (linkText.length < 100 && !linkText.toLowerCase().includes("subscribe") && !linkText.toLowerCase().includes("view comments")) {
+            if (linkText.length < 100 && !linkText.toLowerCase().includes("subscribe") && !linkText.toLowerCase().includes("view comments")) { // Basic sanity check
                  result.extractedChannelTitle = linkText;
                  console.log('[CS_ExtractInfo_VideoPage] Used channelLinkElement.textContent for extractedChannelTitle:', result.extractedChannelTitle);
-                 result.debug_cs_usedFallbackChannelTitle = true; 
-                 result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle;
-                 result.debug_cs_channelNameContent = result.extractedChannelTitle; 
-                 // debug_cs_channelNameElementFound remains false if specific child not found above
+                 result.debug_cs_usedFallbackChannelTitle = true; // Indicates a fallback was used
+                 result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle; // Store the specific fallback
+                 result.debug_cs_channelNameContent = result.extractedChannelTitle; // Content used for title
+                 // debug_cs_channelNameElementFound remains false as a specific child selector wasn't successful
             } else {
                 console.log('[CS_ExtractInfo_VideoPage] channelLinkElement.textContent was too long or non-descriptive, not used for title:', linkText);
             }
         }
         
+        // If still no title, and we have a channel URL, parse from URL
         if (!result.extractedChannelTitle && result.extractedChannelUrl) {
             try {
                 let pathName = new URL(result.extractedChannelUrl).pathname.split('/').pop();
                 if (pathName) {
                     result.extractedChannelTitle = pathName.startsWith('@') ? pathName.substring(1) : pathName;
                     console.log('[CS_ExtractInfo_VideoPage] Used fallback for extractedChannelTitle from URL:', result.extractedChannelUrl, '-> title:', result.extractedChannelTitle);
-                    result.debug_cs_usedFallbackChannelTitle = true; 
-                    result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle;
-                     if (!result.debug_cs_channelNameContent) result.debug_cs_channelNameContent = result.extractedChannelTitle; 
+                    result.debug_cs_usedFallbackChannelTitle = true; // Indicates a fallback was used
+                    result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle; // Store the specific fallback
+                     if (!result.debug_cs_channelNameContent) result.debug_cs_channelNameContent = result.extractedChannelTitle; // If no other content, this is it
                 }
             } catch(e) { 
                 console.warn("Error parsing channel link for title fallback", e);
-                if (result.extractedChannelTitle == null) { 
+                // Ensure flags reflect that this specific fallback might have failed
+                if (result.extractedChannelTitle == null) { // only if title wasn't set by a previous step
                     result.debug_cs_usedFallbackChannelTitle = false;
                     result.debug_cs_fallbackChannelTitle = null;
                 }
@@ -287,23 +289,18 @@ function parseYouTubeLinkPreview(linkUrl) {
 
     if (previewContainer) {
         const titleElement = previewContainer.querySelector('#video-title, .title-and-badge a h3 .yt-core-attributed-string, #video-title-link yt-formatted-string, #meta h3 yt-formatted-string');
-        // Part 1: Modify videoTitle fallback in parseYouTubeLinkPreview
+        // Reverted videoTitle logic for parseYouTubeLinkPreview
         if (titleElement && titleElement.textContent) {
             details.videoTitle = titleElement.textContent.trim();
-        } else if (videoLinkElement) { 
-            let titleFromAttributes = videoLinkElement.getAttribute('aria-label') || videoLinkElement.getAttribute('title');
-            if (titleFromAttributes) {
-                details.videoTitle = titleFromAttributes.trim();
-            } else if (details.videoUrl && details.videoUrl === window.location.href) { 
-                // Only use document.title if the link is for the current page itself
-                details.videoTitle = document.title.replace(/ - YouTube$/, '').trim();
-            } else {
-                details.videoTitle = null; 
-            }
+        } else if (videoLinkElement) { // Ensure videoLinkElement exists for these attributes
+            details.videoTitle = videoLinkElement.getAttribute('aria-label') || // Prefer aria-label
+                                 videoLinkElement.getAttribute('title') || 
+                                 videoLinkElement.textContent.trim() || // Then link's own text
+                                 "YouTube Video"; // Generic fallback if nothing else
         } else {
-            details.videoTitle = null; 
+             details.videoTitle = "YouTube Video"; // Should not happen if videoLinkElement is guaranteed by outer logic
         }
-        console.log("[CS_ParseLink] Extracted videoTitle (after fallbacks):", details.videoTitle);
+        console.log("[CS_ParseLink] Extracted videoTitle:", details.videoTitle); // Reverted log message too
 
         const imgElement = previewContainer.querySelector('yt-image img[src*="ytimg.com/vi/"], img.yt-core-image--loaded[src*="ytimg.com/vi/"]');
         if (imgElement && imgElement.src) {
