@@ -15,7 +15,10 @@ function extractInitialPageInfo() {
     debug_cs_channelNameElementFound: false,
     debug_cs_channelNameContent: null,
     debug_cs_usedFallbackChannelTitle: false,
-    debug_cs_fallbackChannelTitle: null
+    debug_cs_fallbackChannelTitle: null,
+    // New debug fields for C part of subtask (video page title)
+    debug_cs_videoPageSpecificTitleFound: false,
+    debug_cs_videoPageSpecificTitleContent: null
   };
 
   // 1. Try to get favicon
@@ -54,19 +57,32 @@ function extractInitialPageInfo() {
     const videoId = new URLSearchParams(window.location.search).get('v');
     console.log('[CS_ExtractInfo_VideoPage] videoId:', videoId);
 
-    // Video Page Title Extraction
-    let specificVideoTitleElement = document.querySelector('ytd-watch-metadata .title yt-formatted-string, h1.ytd-watch-metadata yt-formatted-string');
-    if (specificVideoTitleElement && specificVideoTitleElement.textContent) {
-        result.pageTitle = specificVideoTitleElement.textContent.trim();
-        console.log('[CS_ExtractInfo_VideoPage] Used specific selector for video pageTitle:', result.pageTitle);
-    } else {
-        result.pageTitle = document.title.replace(/ - YouTube$/, '').trim(); // Cleaned document.title as fallback
+    // Video Page Title Extraction (Part C)
+    const specificVideoTitleSelectors = [
+        'h1.ytd-watch-metadata yt-formatted-string.ytd-video-primary-info-renderer',
+        'yt-formatted-string.title.ytd-video-primary-info-renderer',
+        'ytd-watch-metadata .title yt-formatted-string', // Existing one from Turn 75
+        'h1.ytd-watch-metadata yt-formatted-string'      // Existing one from Turn 75
+    ];
+    let videoPageTitleElement = null;
+    for (const selector of specificVideoTitleSelectors) {
+        videoPageTitleElement = document.querySelector(selector);
+        if (videoPageTitleElement && videoPageTitleElement.textContent?.trim()) {
+            result.pageTitle = videoPageTitleElement.textContent.trim();
+            result.debug_cs_videoPageSpecificTitleFound = true;
+            result.debug_cs_videoPageSpecificTitleContent = result.pageTitle;
+            console.log('[CS_ExtractInfo_VideoPage] Used specific selector for video pageTitle:', result.pageTitle, `(selector: ${selector})`);
+            break;
+        }
+    }
+    if (!result.debug_cs_videoPageSpecificTitleFound) {
+        result.pageTitle = document.title.replace(/ - YouTube$/, '').trim(); 
         console.log('[CS_ExtractInfo_VideoPage] Used document.title for video pageTitle:', result.pageTitle);
     }
-    result.debug_cs_pageTitle = result.pageTitle; // Store for debugging
+    result.debug_cs_pageTitle = result.pageTitle; 
 
     if (videoId) {
-      // Video Page Thumbnail Extraction
+      // Video Page Thumbnail Extraction (already updated in Turn 75, seems fine)
       const ogImage = document.querySelector("meta[property='og:image']");
       const imageSrcLink = document.querySelector("link[rel='image_src']");
       if (ogImage && ogImage.content) {
@@ -82,8 +98,11 @@ function extractInitialPageInfo() {
       }
       result.debug_cs_thumbnailUrl = result.thumbnailUrl; // Store for debugging
       
-      // Channel Image (Avatar) Extraction (already modified and correct)
-      const channelImgSelectors = [
+      // Channel Image (Avatar) Extraction (Part B - modify channelImgSelectors)
+      const channelImgSelectors_watch = [ // Renamed as per Turn 70's diff, but using the new list
+          'a.ytd-video-owner-renderer yt-img-shadow#avatar img#img', 
+          'ytd-video-owner-renderer yt-img-shadow#avatar img#img', 
+          // Fallbacks from previous versions
           'ytd-video-owner-renderer #avatar.ytd-video-owner-renderer img.yt-img-shadow', 
           'ytd-video-owner-renderer #avatar img', 
           'ytd-channel-name #avatar img',         
@@ -93,7 +112,7 @@ function extractInitialPageInfo() {
           '#meta #avatar img.yt-img-shadow'       
       ];
       let channelImg = null;
-      for (const selector of channelImgSelectors) {
+      for (const selector of channelImgSelectors_watch) { // Use the correct variable name
           channelImg = document.querySelector(selector);
           if (channelImg) {
               console.log('[CS_ExtractInfo_VideoPage] channelImg found with selector:', selector, channelImg);
@@ -110,23 +129,25 @@ function extractInitialPageInfo() {
         console.log('[CS_ExtractInfo_VideoPage] channelImg not found or no src.');
       }
       
-      // Part 2.2: Update channelLinkSelectors in extractInitialPageInfo
-      const channelLinkSelectors = [ 
+      // Channel Link (for result.extractedChannelUrl) (Part B - modify channelLinkSelectors)
+      const channelLinkSelectors_watch = [ // Renamed as per Turn 70's diff
+          'div#upload-info ytd-channel-name a.yt-simple-endpoint[href*="/@"]', 
+          'div#upload-info ytd-channel-name a.yt-simple-endpoint[href*="/channel/"]', 
           'a.yt-simple-endpoint.ytd-video-owner-renderer[href*="/@"]', 
-          'a.yt-simple-endpoint.ytd-video-owner-renderer[href*="/channel/"]',
+          'a.yt-simple-endpoint.ytd-video-owner-renderer[href*="/channel/"]', 
+          // Fallbacks from previous versions (includes selectors from Turn 67/73)
           'div#owner ytd-channel-name a.yt-simple-endpoint',
-          // Original selectors from previous successful diff (turn 54)
           'ytd-video-owner-renderer .ytd-channel-name a.yt-simple-endpoint', 
           'ytd-video-owner-renderer #owner-name a.yt-simple-endpoint', 
           'ytd-video-owner-renderer #channel-name a.yt-simple-endpoint', 
-          'ytd-video-owner-renderer a.yt-simple-endpoint[href*="/@"]',
-          'ytd-video-owner-renderer a.yt-simple-endpoint[href*="/channel/"]',
+          // 'ytd-video-owner-renderer a.yt-simple-endpoint[href*="/@"]', // Redundant with 3rd selector if specific enough
+          // 'ytd-video-owner-renderer a.yt-simple-endpoint[href*="/channel/"]', // Redundant
           '#meta-contents .ytd-video-owner-renderer #channel-name a.yt-simple-endpoint',
           '#owner .ytd-channel-name a.yt-simple-endpoint', 
           '#info .ytd-channel-name a.yt-simple-endpoint'   
       ];
       let channelLinkElement = null;
-      for (const selector of channelLinkSelectors) {
+      for (const selector of channelLinkSelectors_watch) { // Use the correct variable name
           channelLinkElement = document.querySelector(selector);
           if (channelLinkElement) {
               console.log('[CS_ExtractInfo_VideoPage] channelLinkElement found with selector:', selector, channelLinkElement);
@@ -148,37 +169,52 @@ function extractInitialPageInfo() {
         result.debug_cs_channelNameElementFound = false; 
         result.debug_cs_channelNameContent = null;    
 
-        const channelNameSelectors = [ // Reverting to 'channelNameSelectors' as per original instruction for this part, was 'currentChannelNameSelectors'
-            'yt-formatted-string#text', 
-            '#channel-title',          
-            'yt-formatted-string.ytd-channel-name' 
-        ];
-        let channelNameElement = null;
-        // Search within channelLinkElement first
-        for (const selector of channelNameSelectors) { 
-            channelNameElement = channelLinkElement.querySelector(selector);
-            if (channelNameElement && channelNameElement.textContent?.trim()) {
-                console.log('[CS_ExtractInfo_VideoPage] channelNameElement found within channelLinkElement with selector:', selector, channelNameElement);
-                result.extractedChannelTitle = channelNameElement.textContent.trim();
-                result.debug_cs_channelNameElementFound = true;
+        // Refined extractedChannelTitle logic (Part B/C)
+        const specificTitleElement = document.querySelector('div#upload-info yt-formatted-string#text[title]');
+        if (specificTitleElement) {
+            result.extractedChannelTitle = specificTitleElement.getAttribute('title')?.trim();
+            if (result.extractedChannelTitle) {
+                console.log('[CS_ExtractInfo_VideoPage] Extracted channel title from specific element (div#upload-info yt-formatted-string#text[title]):', result.extractedChannelTitle);
+                result.debug_cs_channelNameElementFound = true; // Considered a specific element find
                 result.debug_cs_channelNameContent = result.extractedChannelTitle;
-                break; 
+                result.debug_cs_usedFallbackChannelTitle = false;
             }
         }
-        console.log('[CS_ExtractInfo_VideoPage] Final channelNameElement after specific selectors query:', channelNameElement);
-        
-        // If not found via specific child, try link's own text content
-        if (!result.extractedChannelTitle && channelLinkElement.textContent?.trim()) {
-            const linkText = channelLinkElement.textContent.trim();
-            if (linkText.length < 100 && !linkText.toLowerCase().includes("subscribe") && !linkText.toLowerCase().includes("view comments")) { // Basic sanity check
-                 result.extractedChannelTitle = linkText;
-                 console.log('[CS_ExtractInfo_VideoPage] Used channelLinkElement.textContent for extractedChannelTitle:', result.extractedChannelTitle);
-                 result.debug_cs_usedFallbackChannelTitle = true; // Indicates a fallback was used
-                 result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle; // Store the specific fallback
-                 result.debug_cs_channelNameContent = result.extractedChannelTitle; // Content used for title
-                 // debug_cs_channelNameElementFound remains false as a specific child selector wasn't successful
-            } else {
-                console.log('[CS_ExtractInfo_VideoPage] channelLinkElement.textContent was too long or non-descriptive, not used for title:', linkText);
+
+        if (!result.extractedChannelTitle && channelLinkElement) { // If specific title not found, proceed with link based
+            // Try specific child selectors within channelLinkElement first
+            const channelNameChildSelectors = [ 
+                'yt-formatted-string#text', 
+                '#channel-title',          
+                'yt-formatted-string.ytd-channel-name' 
+            ];
+            let channelNameElement = null;
+            for (const selector of channelNameChildSelectors) { 
+                channelNameElement = channelLinkElement.querySelector(selector);
+                if (channelNameElement && channelNameElement.textContent?.trim()) {
+                    console.log('[CS_ExtractInfo_VideoPage] channelNameElement found within channelLinkElement with selector:', selector, channelNameElement);
+                    result.extractedChannelTitle = channelNameElement.textContent.trim();
+                    result.debug_cs_channelNameElementFound = true;
+                    result.debug_cs_channelNameContent = result.extractedChannelTitle;
+                    break; 
+                }
+            }
+            console.log('[CS_ExtractInfo_VideoPage] Final channelNameElement after specific child selectors query:', channelNameElement);
+
+            // If not found via specific child, try link's own text content
+            if (!result.extractedChannelTitle && channelLinkElement.textContent?.trim()) {
+                const linkText = channelLinkElement.textContent.trim();
+                // Check if this link element's selector matches the name area, making its textContent more reliable
+                const isNameAreaLink = channelLinkElement.matches('div#upload-info ytd-channel-name a.yt-simple-endpoint');
+                if (isNameAreaLink || (linkText.length < 100 && !linkText.toLowerCase().includes("subscribe") && !linkText.toLowerCase().includes("view comments"))) {
+                     result.extractedChannelTitle = linkText;
+                     console.log('[CS_ExtractInfo_VideoPage] Used channelLinkElement.textContent for extractedChannelTitle:', result.extractedChannelTitle, `(isNameAreaLink: ${isNameAreaLink})`);
+                     result.debug_cs_usedFallbackChannelTitle = true; 
+                     result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle; 
+                     result.debug_cs_channelNameContent = result.extractedChannelTitle; 
+                } else {
+                    console.log('[CS_ExtractInfo_VideoPage] channelLinkElement.textContent was too long or non-descriptive (and not from name area), not used for title:', linkText);
+                }
             }
         }
         
@@ -189,14 +225,13 @@ function extractInitialPageInfo() {
                 if (pathName) {
                     result.extractedChannelTitle = pathName.startsWith('@') ? pathName.substring(1) : pathName;
                     console.log('[CS_ExtractInfo_VideoPage] Used fallback for extractedChannelTitle from URL:', result.extractedChannelUrl, '-> title:', result.extractedChannelTitle);
-                    result.debug_cs_usedFallbackChannelTitle = true; // Indicates a fallback was used
-                    result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle; // Store the specific fallback
-                     if (!result.debug_cs_channelNameContent) result.debug_cs_channelNameContent = result.extractedChannelTitle; // If no other content, this is it
+                    result.debug_cs_usedFallbackChannelTitle = true; 
+                    result.debug_cs_fallbackChannelTitle = result.extractedChannelTitle; 
+                     if (!result.debug_cs_channelNameContent) result.debug_cs_channelNameContent = result.extractedChannelTitle; 
                 }
             } catch(e) { 
                 console.warn("Error parsing channel link for title fallback", e);
-                // Ensure flags reflect that this specific fallback might have failed
-                if (result.extractedChannelTitle == null) { // only if title wasn't set by a previous step
+                if (result.extractedChannelTitle == null) { 
                     result.debug_cs_usedFallbackChannelTitle = false;
                     result.debug_cs_fallbackChannelTitle = null;
                 }
