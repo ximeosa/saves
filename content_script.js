@@ -158,11 +158,17 @@ function parseYouTubeLinkPreview(linkUrl) {
 
         // Attempt 1: Look for common channel name text elements
         const channelNameSelectors = [
-            '#channel-name yt-formatted-string.ytd-channel-name', // Preferred for some renderers
-            'yt-formatted-string.ytd-channel-name',                 // General
+            // New selectors for sidebar/compact renderers (prioritized)
+            '#byline-container yt-formatted-string.ytd-channel-name', 
+            '.ytd-video-meta-block #byline-container yt-formatted-string.ytd-channel-name',
+            '#channel-name .ytd-channel-name', // General if yt-formatted-string is nested
+
+            // Existing selectors
+            '#channel-name yt-formatted-string.ytd-channel-name', 
+            'yt-formatted-string.ytd-channel-name',                 
             '.ytd-video-meta-block #channel-name yt-formatted-string',
-            '#byline.ytd-video-meta-block yt-formatted-string',       // Compact/video list items
-            '.ytd-channel-name#text.yt-formatted-string'              // Another common pattern
+            '#byline.ytd-video-meta-block yt-formatted-string',       
+            '.ytd-channel-name#text.yt-formatted-string'              
         ];
         for (const selector of channelNameSelectors) {
             const nameEl = previewContainer.querySelector(selector);
@@ -178,12 +184,19 @@ function parseYouTubeLinkPreview(linkUrl) {
 
         // Attempt 2: Look for common channel link elements
         const channelLinkSelectors = [
-            '#channel-name a.yt-simple-endpoint',                                  // If name itself is a link
-            'ytd-channel-name a.yt-simple-endpoint',                               // If name container has a link
-            '#avatar-link.yt-simple-endpoint[href*="/@"], #avatar-link.yt-simple-endpoint[href*="/channel/"]', // Link around avatar
-            'a.yt-simple-endpoint.ytd-video-meta-block[href*="/@"]',             // Link in byline (handle)
-            'a.yt-simple-endpoint.ytd-video-meta-block[href*="/channel/"]',      // Link in byline (channel ID)
-            '.metadata a.yt-simple-endpoint[href*="/@"]',                         // More general metadata links
+            // New selectors for sidebar/compact renderers (prioritized)
+            '#byline-container a.yt-simple-endpoint.ytd-video-meta-block[href*="/@"]',
+            '#byline-container a.yt-simple-endpoint.ytd-video-meta-block[href*="/channel/"]',
+            '.ytd-channel-name a.yt-simple-endpoint[href*="/@"]', 
+            '.ytd-channel-name a.yt-simple-endpoint[href*="/channel/"]',
+
+            // Existing selectors
+            '#channel-name a.yt-simple-endpoint',                                  
+            'ytd-channel-name a.yt-simple-endpoint',                               
+            '#avatar-link.yt-simple-endpoint[href*="/@"], #avatar-link.yt-simple-endpoint[href*="/channel/"]', 
+            'a.yt-simple-endpoint.ytd-video-meta-block[href*="/@"]',             
+            'a.yt-simple-endpoint.ytd-video-meta-block[href*="/channel/"]',      
+            '.metadata a.yt-simple-endpoint[href*="/@"]',                         
             '.metadata a.yt-simple-endpoint[href*="/channel/"]'
         ];
         let channelLinkElement = null;
