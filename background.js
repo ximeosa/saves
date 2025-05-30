@@ -102,78 +102,153 @@ function saveBookmarkToStorage(bookmarkData) {
   });
 }
 
-let pendingBookmarks = {}; 
+let pendingBookmarks = {};
+
+// New function to process data from content script for channel extraction from video page
+function processChannelExtraction(dataFromMessageHandler) {
+  const { extractedChannelUrl, extractedChannelTitle, faviconUrlFromVideoPage, originalVideoUrl, id: originalBookmarkId } = dataFromMessageHandler;
+
+  if (extractedChannelUrl && typeof extractedChannelUrl === 'string' && extractedChannelUrl.trim() !== '') {
+    const finalChannelBookmark = {
+      id: originalBookmarkId, // Use original ID from pendingBookmark.bookmarkBase.id for consistency
+      type: 'youtube_channel',
+      url: extractedChannelUrl.trim(),
+      title: (extractedChannelTitle || new URL(extractedChannelUrl).pathname.replace(/^@/, '').replace(/^\//, '')).trim(),
+      faviconUrl: faviconUrlFromVideoPage, // This is the channel icon from video page
+      thumbnailUrl: faviconUrlFromVideoPage, // Use same for channel thumbnail
+      added_date: new Date().toISOString(),
+      sourceVideoUrl: originalVideoUrl // Optional: for context
+    };
+    console.log("[BG_ChanFromLink] Saving final channel bookmark:", JSON.stringify(finalChannelBookmark));
+    saveBookmarkToStorage(finalChannelBookmark);
+  } else {
+    console.warn("[BG_ChanFromLink] Content script did not find extractedChannelUrl from video page %s.", originalVideoUrl);
+    chrome.notifications.create({
+      type: 'basic',
+      iconUrl: 'icons/48.png',
+      title: 'Channel Not Found',
+      message: 'Could not extract channel link from the video page. No bookmark saved.'
+    });
+  }
+}
 
 // Modified handleScriptInjectionResult signature and body
 function handleScriptInjectionResult(tabId, injectionResults, bookmarkBaseForThisOperation) {
+    // This function is primarily for the 'bookmarkYouTubeChannel' (direct channel link) temp tab.
+    // For 'bookmarkChannelFromLink' (video link to channel), injection failure is handled in its specific callback.
     if (chrome.runtime.lastError || !injectionResults || !injectionResults.length === 0) {
         const errorMessage = chrome.runtime.lastError?.message || "No injection results returned.";
-        console.error(`[INJ_FAIL] Content script injection failed for tab ${tabId}:`, errorMessage); // LOG A
+        console.error(`[INJ_FAIL] Content script injection failed for tab ${tabId}:`, errorMessage); 
         
         if (pendingBookmarks[tabId]) {
-            const { callback, isTempTab } = pendingBookmarks[tabId]; 
-            if (isTempTab) { // Check if this is related to a temp tab for channel bookmarking
-                console.log("[CHAN_CTX_DEBUG] Script injection failed for temp tab %s. Calling callback with basic info. Error: %s", tabId, errorMessage);
-                bookmarkBaseForThisOperation.isFallbackSave = true; // Mark as fallback
+            const { callback, isTempTab, operation } = pendingBookmarks[tabId]; 
+            if (isTempTab && operation !== 'extractChannelFromVideo') { // Ensure it's for the original temp tab channel use case
+                console.log("[CHAN_CTX_DEBUG] Script injection failed for temp tab %s (direct channel link). Calling callback with basic info. Error: %s", tabId, errorMessage);
+                bookmarkBaseForThisOperation.isFallbackSave = true; 
             }
-            console.log(`[INJ_FAIL] Invoking callback for tab ${tabId} with original bookmarkBase due to injection failure.`); // LOG B
+            // For 'extractChannelFromVideo', this path shouldn't ideally be hit due to specific error handling,
+            // but if it is, we let the generic path proceed, though it might lead to a less specific outcome.
+            console.log(`[INJ_FAIL] Invoking callback for tab ${tabId} with original bookmarkBase due to injection failure. Operation: ${operation}`); 
             callback(bookmarkBaseForThisOperation); 
             delete pendingBookmarks[tabId];
         }
     } else {
-        console.log(`[INJ_SUCCESS] Content script injected successfully for tab ${tabId}. Waiting for onMessage response.`); // LOG C
+        console.log(`[INJ_SUCCESS] Content script injected successfully for tab ${tabId}. Waiting for onMessage response. Operation: ${pendingBookmarks[tabId]?.operation}`); 
     }
 }
 
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
   if (request.action === "extractedPageInfo" && sender.tab && sender.tab.id) {
-    // console.log("Background received page info from content script:", request.data, "for tab:", sender.tab.id); // Original log
     const tabId = sender.tab.id;
-    if (pendingBookmarks[tabId]) {
-      const { bookmarkBase, callback, isTempTab } = pendingBookmarks[tabId]; 
-      if (isTempTab) {
-        console.log("[CHAN_CTX_DEBUG] Received extractedPageInfo from temp tab:", sender.tab.id, "Data:", request.data);
-      } else {
-        console.log("Background received page info from content script:", request.data, "for tab:", sender.tab.id);
-      }
+    const pending = pendingBookmarks[tabId];
 
-      let updatedTitle = request.data.pageTitle || bookmarkBase.title;
-      let updatedFaviconUrl = request.data.faviconUrl || null;
-      let updatedThumbnailUrl = request.data.thumbnailUrl || null;
+    if (pending) {
+      if (pending.operation === 'extractChannelFromVideo') {
+        console.log("[BG_ChanFromLink] Received extractedPageInfo from temp video tab %s for channel extraction.", tabId);
+        const dataForCallback = {
+            extractedChannelUrl: request.data.extractedChannelUrl,
+            extractedChannelTitle: request.data.extractedChannelTitle,
+            faviconUrlFromVideoPage: request.data.faviconUrl, // Channel icon from video page
+            originalVideoUrl: pending.bookmarkBase.originalVideoUrl,
+            id: pending.bookmarkBase.id // Keep original ID
+        };
+        pending.callback(dataForCallback); // Calls processChannelExtraction
+        
+        console.log("[BG_ChanFromLink] Attempting to remove temp video tab:", tabId);
+        chrome.tabs.remove(tabId, () => { 
+            if (chrome.runtime.lastError) {
+                console.error("[BG_ChanFromLink] Error removing temp video tab %s: %s", tabId, chrome.runtime.lastError.message);
+            } else {
+                console.log("[BG_ChanFromLink] Temp video tab %s removed successfully after channel extraction.", tabId);
+            }
+        });
+        delete pendingBookmarks[tabId];
+        return true; // Indicate response will be sent asynchronously (though we don't send one here)
 
-      if (bookmarkBase.type === 'website') {
-        updatedTitle = bookmarkBase.title; 
-        updatedThumbnailUrl = null;      
-      } else if (bookmarkBase.type === 'youtube_channel') {
-        updatedTitle = request.data.pageTitle || bookmarkBase.title; 
-        updatedFaviconUrl = request.data.faviconUrl || bookmarkBase.faviconUrl; 
-        updatedThumbnailUrl = request.data.thumbnailUrl || bookmarkBase.thumbnailUrl;
-      }
-      
-      const fullBookmark = {
-        ...bookmarkBase,
-        title: updatedTitle,
-        url: isTempTab ? bookmarkBase.url : (request.data.pageUrl || bookmarkBase.url),
-        faviconUrl: updatedFaviconUrl,
-        thumbnailUrl: updatedThumbnailUrl,
-      };
-      if (isTempTab) { 
-          fullBookmark.url = bookmarkBase.url; // Ensure original URL for temp tab derived bookmarks
-          console.log("[CHAN_CTX_DEBUG] Pending bookmark data for temp tab %s before calling save:", tabId, JSON.stringify(fullBookmark));
-      }
+      } else if (pending.isTempTab) { // Original temp tab logic for direct channel links
+        console.log("[CHAN_CTX_DEBUG] Received extractedPageInfo from temp tab (direct channel link):", tabId, "Data:", request.data);
+        const { bookmarkBase, callback } = pending;
+        let updatedTitle = request.data.pageTitle || bookmarkBase.title;
+        let updatedFaviconUrl = request.data.faviconUrl || null;
+        let updatedThumbnailUrl = request.data.thumbnailUrl || null;
 
-      callback(fullBookmark); 
-      delete pendingBookmarks[tabId]; 
+        if (bookmarkBase.type === 'youtube_channel') { // This should be the case for this path
+            updatedTitle = request.data.pageTitle || bookmarkBase.title; 
+            updatedFaviconUrl = request.data.faviconUrl || bookmarkBase.faviconUrl; 
+            updatedThumbnailUrl = request.data.thumbnailUrl || bookmarkBase.thumbnailUrl;
+        }
+        
+        const fullBookmark = {
+            ...bookmarkBase,
+            title: updatedTitle,
+            url: bookmarkBase.url, // Keep original URL for direct channel links
+            faviconUrl: updatedFaviconUrl,
+            thumbnailUrl: updatedThumbnailUrl,
+        };
+        console.log("[CHAN_CTX_DEBUG] Pending bookmark data for temp tab %s (direct channel link) before calling save:", tabId, JSON.stringify(fullBookmark));
+        callback(fullBookmark); 
+        delete pendingBookmarks[tabId];
+        return true;
+
+      } else { // For non-temp tabs (e.g., popup initiated, page context)
+        console.log("Background received page info from content script (non-temp tab):", request.data, "for tab:", tabId);
+        const { bookmarkBase, callback } = pending;
+        let updatedTitle = request.data.pageTitle || bookmarkBase.title;
+        let updatedFaviconUrl = request.data.faviconUrl || null;
+        let updatedThumbnailUrl = request.data.thumbnailUrl || null;
+
+        if (bookmarkBase.type === 'website') {
+            updatedTitle = bookmarkBase.title; 
+            updatedThumbnailUrl = null;      
+        }
+        // Potentially other types could be handled here if needed for non-temp tabs
+        
+        const fullBookmark = {
+            ...bookmarkBase,
+            title: updatedTitle,
+            url: request.data.pageUrl || bookmarkBase.url, // Use pageUrl from content script if available
+            faviconUrl: updatedFaviconUrl,
+            thumbnailUrl: updatedThumbnailUrl,
+        };
+        callback(fullBookmark); 
+        delete pendingBookmarks[tabId];
+        return true;
+      }
+    } else {
+      console.warn("Received extractedPageInfo but no matching pendingBookmark for tabId:", tabId);
     }
     return true; 
   } else if (request.action === "parsedYouTubeLinkPreviewResults" && sender.tab && sender.tab.id) {
+    // This block is for the old "bookmarkVideoFromLink" and the now-removed part of "bookmarkChannelFromLink"
+    // It might still be used by "bookmarkVideoFromLink".
     console.log("Background received parsedYouTubeLinkPreviewResults:", request.data, "for tab:", sender.tab.id);
     const tabId = sender.tab.id; 
-    if (pendingBookmarks[tabId] && pendingBookmarks[tabId].isLinkParsing) {
-        const { bookmarkBase, callback } = pendingBookmarks[tabId];
+    const pending = pendingBookmarks[tabId];
+    if (pending && pending.isLinkParsing) { // Check if it's the correct type of pending operation
+        const { bookmarkBase, callback } = pending;
         if (request.error) {
             console.error("Error from content script parsing link preview:", request.error);
-            callback(bookmarkBase); 
+            callback(bookmarkBase); // Send original base data on error
             delete pendingBookmarks[tabId];
             return true;
         }
@@ -184,19 +259,19 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
             finalBookmarkData.title = details.videoTitle || bookmarkBase.title;
             finalBookmarkData.thumbnailUrl = details.videoThumbnailUrl || null;
             finalBookmarkData.faviconUrl = details.channelIconUrl || null; 
-        } else if (bookmarkBase.type === 'youtube_channel') {
-            finalBookmarkData.title = details.channelTitle || bookmarkBase.title;
-            finalBookmarkData.url = details.channelUrl || bookmarkBase.url; 
-            finalBookmarkData.faviconUrl = details.channelIconUrl || null; 
-            finalBookmarkData.thumbnailUrl = details.channelIconUrl || null;
-        }
+        } 
+        // No 'youtube_channel' case here anymore as that's handled by the temp tab flow or new video-to-channel flow
+        
         callback(finalBookmarkData);
         delete pendingBookmarks[tabId];
     } else {
-      console.warn("Received parsedYouTubeLinkPreviewResults but no matching pendingBookmark or not a link parsing operation for tab:", tabId);
+      console.warn("Received parsedYouTubeLinkPreviewResults but no matching or valid pendingBookmark for tab:", tabId);
     }
     return true;
   }
+  // Important: Return true for onMessage listeners that use sendResponse asynchronously.
+  // However, for listeners that don't call sendResponse, it's better to return false or undefined
+  // if no other listener will handle the message. Here, we return true for simplicity as most paths might.
   return true; 
 });
 
@@ -387,74 +462,92 @@ chrome.contextMenus.onClicked.addListener(function(info, tab) {
     return;
 
   } else if (info.menuItemId === "bookmarkChannelFromLink") {
-    if (!tab || !tab.id) { console.error("Tab ID missing for bookmarkChannelFromLink"); return; }
-    const sourceLinkUrl = info.linkUrl; 
-    shouldInjectContentScript = false; 
-    if (!sourceLinkUrl || !(sourceLinkUrl.includes("youtube.com/channel/") || sourceLinkUrl.includes("youtube.com/@") || sourceLinkUrl.includes("youtube.com/watch"))) {
-        chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Invalid Link', message: 'This link is not a recognizable YouTube video or channel link.' });
+    // --- Refactored bookmarkChannelFromLink ---
+    if (!tab || !tab.id) { 
+        console.error("[BG_ChanFromLink] Tab ID missing for 'bookmarkChannelFromLink'. This should not happen if context is a link on a page."); 
+        chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Cannot initiate action: Tab context is missing.' });
+        return; 
+    }
+    const videoUrl = info.linkUrl; 
+    shouldInjectContentScript = false; // We are using a temp tab, not injecting into the current tab.
+
+    // Input Validation: Check if it's a YouTube video URL
+    if (!videoUrl || !videoUrl.includes("youtube.com/watch")) {
+        console.log("[BG_ChanFromLink] Clicked link is not a YouTube video URL:", videoUrl);
+        chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Invalid Link', message: 'This link does not appear to be a YouTube video. Please click on a direct video link.' });
         return;
     }
-     bookmarkBase = { 
-        id: 'id_' + new Date().getTime(), type: 'youtube_channel', url: sourceLinkUrl, 
-        title: "YT Channel (from link)", added_date: new Date().toISOString()
+
+    // Initial bookmarkBase
+    bookmarkBase = { 
+        id: 'id_' + new Date().getTime(), 
+        type: 'youtube_channel', // The final type will be youtube_channel
+        url: videoUrl, // Store video URL temporarily, will be replaced by channel URL
+        title: "Fetching channel info for video...", // Placeholder title
+        added_date: new Date().toISOString(),
+        faviconUrl: null, 
+        thumbnailUrl: null,
+        originalVideoUrl: videoUrl // Store for reference
     };
-    pendingBookmarks[tab.id] = { bookmarkBase, callback: saveBookmarkToStorage, isLinkParsing: true };
+    
+    console.log("[BG_ChanFromLink] Creating temp tab for video URL to extract channel info:", videoUrl);
+    chrome.tabs.create({ url: videoUrl, active: false }, function(newTab) {
+        if (chrome.runtime.lastError || !newTab || !newTab.id) {
+            console.error("[BG_ChanFromLink] Failed to create temporary tab for video %s. Error: %s", videoUrl, chrome.runtime.lastError?.message);
+            chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error', message: 'Failed to create temporary tab to analyze video page.' });
+            // No pendingBookmark to clean up here yet.
+            return;
+        }
+        const tempTabId = newTab.id;
+        console.log("[BG_ChanFromLink] Temp video tab created with ID:", tempTabId);
 
-    chrome.tabs.sendMessage(tab.id, { action: "parseYouTubeLinkPreview", linkUrl: sourceLinkUrl }, function(response) {
-      // Ensure there's a pending bookmark for this tab and URL. If not, response is stale/irrelevant.
-      if (!(pendingBookmarks[tab.id] && pendingBookmarks[tab.id].isLinkParsing && pendingBookmarks[tab.id].bookmarkBase.url === sourceLinkUrl)) {
-        console.log("[BG_ChanLink] Stale or irrelevant parseYouTubeLinkPreview response, ignoring for tab %s and URL %s.", tab.id, sourceLinkUrl);
-        // If pendingBookmarks[tab.id] still exists but for a different URL/purpose, do not delete it here.
-        // If it was for this exact operation but is now mismatched, it implies a logic error or race condition.
-        return;
-      }
-      
-      const currentPending = pendingBookmarks[tab.id];
-      delete pendingBookmarks[tab.id]; // Clean up immediately
-
-      // 3. Handle chrome.runtime.lastError or Invalid Response
-      if (chrome.runtime.lastError || !response || response.action !== "parsedYouTubeLinkPreviewResults" || !response.data) {
-        console.error("[BG_ChanLink] Failed to get valid details from content script for 'bookmarkChannelFromLink'. Error: %s, Response: %o", chrome.runtime.lastError?.message, response);
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/48.png',
-          title: 'Failed to Get Details',
-          message: 'Could not fetch information from the page. No bookmark saved.'
-        });
-        // Do NOT call saveBookmarkToStorage
-        return;
-      }
-
-      // 4. Process Valid Response
-      const details = response.data;
-      console.log("[BG_ChanLink] Received details from content script for 'bookmarkChannelFromLink':", details);
-
-      // Check if channelUrl and channelTitle are present and valid
-      if (details.channelUrl && typeof details.channelUrl === 'string' && details.channelUrl.trim() !== '' &&
-          details.channelTitle && typeof details.channelTitle === 'string' && details.channelTitle.trim() !== '') {
-        
-        const bookmarkData = {
-          ...currentPending.bookmarkBase, // Includes id, type='youtube_channel', added_date
-          title: details.channelTitle.trim(),
-          url: details.channelUrl.trim(),
-          faviconUrl: details.channelIconUrl || null, 
-          thumbnailUrl: details.channelIconUrl || null, // Use channel icon as thumbnail
+        pendingBookmarks[tempTabId] = { 
+            bookmarkBase, // The initial base object
+            callback: processChannelExtraction, // The new function to handle the extracted data
+            isTempTab: true, // Still a temp tab
+            operation: 'extractChannelFromVideo' // Differentiator for onMessage
         };
-        console.log("[BG_ChanLink] Preparing to save bookmarkData for 'bookmarkChannelFromLink':", JSON.parse(JSON.stringify(bookmarkData)));
-        saveBookmarkToStorage(bookmarkData);
-      } else {
-        // Valid response structure, but essential details (channelUrl or channelTitle) are missing
-        console.warn("[BG_ChanLink] Content script did not return full channel details (URL or Title missing). Details: %o", details);
-        chrome.notifications.create({
-          type: 'basic',
-          iconUrl: 'icons/48.png',
-          title: 'Channel Info Incomplete',
-          message: 'Could not extract complete channel information from this link. No bookmark saved.'
-        });
-        // Do NOT call saveBookmarkToStorage
-      }
+
+        // Listener for when the temporary tab is fully loaded
+        function tempTabUpdateListenerForVideo(updatedTabId, changeInfo, updatedTab) {
+            if (updatedTabId === tempTabId && changeInfo.status === 'complete') {
+                chrome.tabs.onUpdated.removeListener(tempTabUpdateListenerForVideo); // Clean up listener
+                console.log("[BG_ChanFromLink] Temp video tab %s status complete. Injecting script.", tempTabId);
+                
+                chrome.scripting.executeScript(
+                    { target: { tabId: tempTabId }, files: ['content_script.js'] },
+                    (injectionResults) => {
+                        if (chrome.runtime.lastError || !injectionResults || injectionResults.length === 0) {
+                            console.error("[BG_ChanFromLink] Failed to inject script into temp video tab %s. Error: %s", tempTabId, chrome.runtime.lastError?.message);
+                            chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Error Fetching Channel', message: 'Could not analyze video page for channel info (script injection failed).' });
+                            chrome.tabs.remove(tempTabId, () => { if (chrome.runtime.lastError) console.error("[BG_ChanFromLink] Error removing failed temp video tab %s: %s", tempTabId, chrome.runtime.lastError.message); });
+                            delete pendingBookmarks[tempTabId];
+                        } else {
+                            console.log("[BG_ChanFromLink] Script injected successfully into temp video tab %s.", tempTabId);
+                            // Now we wait for onMessage from the content script's extractInitialPageInfo
+                        }
+                    }
+                );
+            }
+        }
+        chrome.tabs.onUpdated.addListener(tempTabUpdateListenerForVideo);
+
+        // Timeout for the temporary video tab
+        setTimeout(() => {
+            if (pendingBookmarks[tempTabId]) { // If it hasn't been processed and deleted by onMessage
+                console.warn("[BG_ChanFromLink] Timeout for temp video tab %s.", tempTabId);
+                chrome.tabs.onUpdated.removeListener(tempTabUpdateListenerForVideo); // Clean up listener
+                chrome.notifications.create({ type: 'basic', iconUrl: 'icons/48.png', title: 'Timeout', message: 'Timed out trying to fetch channel info from video page.' });
+                chrome.tabs.remove(tempTabId, () => { 
+                    if (chrome.runtime.lastError) {
+                        console.error("[BG_ChanFromLink] Error removing timed-out temp video tab %s: %s", tempTabId, chrome.runtime.lastError.message);
+                    }
+                });
+                delete pendingBookmarks[tempTabId];
+            }
+        }, 20000); // 20 seconds timeout
     });
-    return;
+    return; // End of refactored bookmarkChannelFromLink
 
   } else if (info.menuItemId === "bookmarkWebsiteFromPage") {
     if (!tab || !tab.id) { console.error("Tab ID missing for bookmarkWebsiteFromPage"); return; }
