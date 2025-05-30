@@ -54,10 +54,35 @@ function extractInitialPageInfo() {
     const videoId = new URLSearchParams(window.location.search).get('v');
     console.log('[CS_ExtractInfo_VideoPage] videoId:', videoId);
 
+    // Video Page Title Extraction
+    let specificVideoTitleElement = document.querySelector('ytd-watch-metadata .title yt-formatted-string, h1.ytd-watch-metadata yt-formatted-string');
+    if (specificVideoTitleElement && specificVideoTitleElement.textContent) {
+        result.pageTitle = specificVideoTitleElement.textContent.trim();
+        console.log('[CS_ExtractInfo_VideoPage] Used specific selector for video pageTitle:', result.pageTitle);
+    } else {
+        result.pageTitle = document.title.replace(/ - YouTube$/, '').trim(); // Cleaned document.title as fallback
+        console.log('[CS_ExtractInfo_VideoPage] Used document.title for video pageTitle:', result.pageTitle);
+    }
+    result.debug_cs_pageTitle = result.pageTitle; // Store for debugging
+
     if (videoId) {
-      result.thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`; // Standard high-quality thumbnail
+      // Video Page Thumbnail Extraction
+      const ogImage = document.querySelector("meta[property='og:image']");
+      const imageSrcLink = document.querySelector("link[rel='image_src']");
+      if (ogImage && ogImage.content) {
+        result.thumbnailUrl = ogImage.content;
+        console.log('[CS_ExtractInfo_VideoPage] Used og:image for video thumbnailUrl:', result.thumbnailUrl);
+      } else if (imageSrcLink && imageSrcLink.href) {
+        result.thumbnailUrl = imageSrcLink.href;
+        console.log('[CS_ExtractInfo_VideoPage] Used link[rel="image_src"] for video thumbnailUrl:', result.thumbnailUrl);
+      } else {
+        result.thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/maxresdefault.jpg`;
+        console.log('[CS_ExtractInfo_VideoPage] Used maxresdefault.jpg for video thumbnailUrl:', result.thumbnailUrl);
+        // Could add a check here to see if maxresdefault loads, then fallback to hqdefault, but that's complex for CS.
+      }
+      result.debug_cs_thumbnailUrl = result.thumbnailUrl; // Store for debugging
       
-      // Part 2.1: Modify channelImg selectors in extractInitialPageInfo
+      // Channel Image (Avatar) Extraction (already modified and correct)
       const channelImgSelectors = [
           'ytd-video-owner-renderer #avatar.ytd-video-owner-renderer img.yt-img-shadow', 
           'ytd-video-owner-renderer #avatar img', 
