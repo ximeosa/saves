@@ -165,6 +165,22 @@ chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (pending) {
       if (pending.operation === 'extractChannelFromVideo') {
         console.log("[BG_ChanFromLink] Received extractedPageInfo from temp video tab %s for channel extraction.", tabId);
+
+        // --- Start of new debug logging ---
+        console.log("--------------------------------------------------------------------");
+        console.log("[BG_CS_DEBUG] Debug Info from Content Script (for video page processing):");
+        console.log("[BG_CS_DEBUG] Target Video URL (from pending bookmark):", pending.bookmarkBase.originalVideoUrl);
+        console.log("[BG_CS_DEBUG] Page was identified as watch page by CS:", request.data.debug_cs_isWatchPage);
+        console.log("[BG_CS_DEBUG] CS: Channel Img Found:", request.data.debug_cs_channelImgFound, "- CS Src:", request.data.debug_cs_channelImgSrc);
+        console.log("[BG_CS_DEBUG] CS: Channel Link Element Found:", request.data.debug_cs_channelLinkElementFound, "- CS Href:", request.data.debug_cs_channelLinkElementHref);
+        console.log("[BG_CS_DEBUG] CS: Channel Name Element Found:", request.data.debug_cs_channelNameElementFound, "- CS Text:", request.data.debug_cs_channelNameContent);
+        console.log("[BG_CS_DEBUG] CS: Used Fallback Channel Title:", request.data.debug_cs_usedFallbackChannelTitle, "- CS Fallback Title:", request.data.debug_cs_fallbackChannelTitle);
+        console.log("[BG_CS_DEBUG] CS Final Extracted Channel URL for bookmark:", request.data.extractedChannelUrl);
+        console.log("[BG_CS_DEBUG] CS Final Extracted Channel Title for bookmark:", request.data.extractedChannelTitle);
+        console.log("[BG_CS_DEBUG] CS Final Favicon URL (channel avatar from video page):", request.data.faviconUrl);
+        console.log("--------------------------------------------------------------------");
+        // --- End of new debug logging ---
+
         const dataForCallback = {
             extractedChannelUrl: request.data.extractedChannelUrl,
             extractedChannelTitle: request.data.extractedChannelTitle,
