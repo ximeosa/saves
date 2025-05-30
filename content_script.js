@@ -39,25 +39,60 @@ function extractInitialPageInfo() {
 
   // 3. Special handling for YouTube video page specifics
   if (window.location.hostname.includes("youtube.com") && window.location.pathname.includes("/watch")) {
+    console.log('[CS_ExtractInfo_VideoPage] Processing as video page.');
     const videoId = new URLSearchParams(window.location.search).get('v');
+    console.log('[CS_ExtractInfo_VideoPage] videoId:', videoId);
+
     if (videoId) {
       result.thumbnailUrl = `https://i.ytimg.com/vi/${videoId}/hqdefault.jpg`; // Standard high-quality thumbnail
-      const channelImg = document.querySelector('ytd-video-owner-renderer #avatar img, ytd-channel-name #avatar img, #meta-contents #avatar img, #meta #avatar img.yt-img-shadow');
-      if (channelImg && channelImg.src) { result.faviconUrl = channelImg.src; } // Channel icon as favicon
       
-      const channelLinkElement = document.querySelector('ytd-video-owner-renderer .ytd-channel-name a, ytd-channel-name a.yt-simple-endpoint');
+      const channelImgSelector = 'ytd-video-owner-renderer #avatar img, ytd-channel-name #avatar img, #meta-contents #avatar img, #meta #avatar img.yt-img-shadow';
+      console.log('[CS_ExtractInfo_VideoPage] Attempting channelImg with selector:', channelImgSelector);
+      const channelImg = document.querySelector(channelImgSelector);
+      console.log('[CS_ExtractInfo_VideoPage] channelImg found:', channelImg);
+      if (channelImg && channelImg.src) {
+        result.faviconUrl = channelImg.src; // Channel icon as favicon
+        console.log('[CS_ExtractInfo_VideoPage] channelImg.src set to result.faviconUrl:', channelImg.src);
+      } else {
+        console.log('[CS_ExtractInfo_VideoPage] channelImg not found or no src.');
+      }
+      
+      const channelLinkSelector = 'ytd-video-owner-renderer .ytd-channel-name a, ytd-channel-name a.yt-simple-endpoint';
+      console.log('[CS_ExtractInfo_VideoPage] Attempting channelLinkElement with selector:', channelLinkSelector);
+      const channelLinkElement = document.querySelector(channelLinkSelector);
+      console.log('[CS_ExtractInfo_VideoPage] channelLinkElement found:', channelLinkElement);
+
       if (channelLinkElement && channelLinkElement.href) {
         result.extractedChannelUrl = channelLinkElement.href;
-        const channelNameElement = channelLinkElement.querySelector('yt-formatted-string#text, #channel-title');
+        console.log('[CS_ExtractInfo_VideoPage] channelLinkElement.href set to result.extractedChannelUrl:', channelLinkElement.href);
+        
+        const channelNameSelector = 'yt-formatted-string#text, #channel-title';
+        console.log('[CS_ExtractInfo_VideoPage] Attempting channelNameElement within channelLinkElement using selector:', channelNameSelector);
+        const channelNameElement = channelLinkElement.querySelector(channelNameSelector);
+        console.log('[CS_ExtractInfo_VideoPage] channelNameElement found:', channelNameElement);
+
         if (channelNameElement && channelNameElement.textContent) {
           result.extractedChannelTitle = channelNameElement.textContent.trim();
+          console.log('[CS_ExtractInfo_VideoPage] channelNameElement.textContent set to result.extractedChannelTitle:', result.extractedChannelTitle);
         } else {
           try {
             let pathName = new URL(channelLinkElement.href).pathname.split('/').pop();
             result.extractedChannelTitle = pathName.startsWith('@') ? pathName.substring(1) : pathName;
-          } catch(e) { console.warn("Error parsing channel link for title fallback", e); }
+            console.log('[CS_ExtractInfo_VideoPage] channelNameElement not found or no textContent. Using fallback title from channelLinkElement.href. Fallback title:', result.extractedChannelTitle);
+          } catch(e) { 
+            console.warn("Error parsing channel link for title fallback", e); 
+            console.log('[CS_ExtractInfo_VideoPage] channelNameElement not found AND no fallback title extracted (error during fallback).');
+          }
         }
+      } else {
+        console.log('[CS_ExtractInfo_VideoPage] channelLinkElement NOT found or no href. result.extractedChannelUrl will be null.');
+        // If result.extractedChannelTitle relies on channelLinkElement, it will also be null or default.
+        // If it could be set by another means (e.g. page title as a very last resort), log that here.
+        // For now, it remains null if channelLinkElement isn't found.
+         console.log('[CS_ExtractInfo_VideoPage] result.extractedChannelTitle remains:', result.extractedChannelTitle);
       }
+    } else {
+      console.log('[CS_ExtractInfo_VideoPage] Video ID not found in URL parameters.');
     }
   }
   // 4. Special handling for YouTube channel page specifics
@@ -83,6 +118,7 @@ function extractInitialPageInfo() {
     console.warn("Error constructing absolute URL:", e);
   }
 
+  console.log('[CS_ExtractInfo] Final result object before sending:', JSON.parse(JSON.stringify(result)));
   return result;
 }
 
